@@ -8,6 +8,8 @@ This document tracks which MIPS instructions are currently handled by the experi
 |--------|
 | ADD |
 | ADDI |
+| ADDIU |
+| ADDU |
 | AND |
 | ANDI |
 | BEQ |
@@ -26,6 +28,8 @@ This document tracks which MIPS instructions are currently handled by the experi
 | CACHE |
 | DADD |
 | DADDI |
+| DADDIU |
+| DADDU |
 | DDIV |
 | DDIVU |
 | DIV |
@@ -42,6 +46,7 @@ This document tracks which MIPS instructions are currently handled by the experi
 | DSRL32 |
 | DSRLV |
 | DSUB |
+| DSUBU |
 | J |
 | JALR |
 | JR |
@@ -67,6 +72,7 @@ This document tracks which MIPS instructions are currently handled by the experi
 | MULT |
 | MULTU |
 | NOR |
+| NOP |
 | OR |
 | ORI |
 | PREF |
@@ -87,6 +93,7 @@ This document tracks which MIPS instructions are currently handled by the experi
 | SRL |
 | SRLV |
 | SUB |
+| SUBU |
 | SW |
 | SWL |
 | SWR |
@@ -101,8 +108,6 @@ This document tracks which MIPS instructions are currently handled by the experi
 |--------|
 | ABS_D |
 | ABS_S |
-| ADDIU |
-| ADDU |
 | ADD_D |
 | ADD_S |
 | CEIL_L_D |
@@ -155,8 +160,6 @@ This document tracks which MIPS instructions are currently handled by the experi
 | C_ULT_S |
 | C_UN_D |
 | C_UN_S |
-| DADDIU |
-| DADDU |
 | DCFC1 |
 | DCTC1 |
 | DIV_D |
@@ -166,7 +169,6 @@ This document tracks which MIPS instructions are currently handled by the experi
 | DMFC2 |
 | DMTC1 |
 | DMTC2 |
-| DSUBU |
 | ERET |
 | FLOOR_L_D |
 | FLOOR_L_S |
@@ -187,7 +189,6 @@ This document tracks which MIPS instructions are currently handled by the experi
 | NEG_D |
 | NEG_S |
 | NI |
-| NOP |
 | RESERVED |
 | RESERVED_COP2 |
 | ROUND_L_D |
@@ -197,7 +198,6 @@ This document tracks which MIPS instructions are currently handled by the experi
 | SDC1 |
 | SQRT_D |
 | SQRT_S |
-| SUBU |
 | SUB_D |
 | SUB_S |
 | SWC1 |

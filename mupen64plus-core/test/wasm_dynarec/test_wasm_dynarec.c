@@ -266,6 +266,29 @@ START_TEST(test_more_opcodes)
 }
 END_TEST
 
+START_TEST(test_unsigned_ops)
+{
+    const uint32_t block[] = {
+        0x24080001, /* addiu t0, zero, 1 */
+        0x64090002, /* daddiu t1, zero, 2 */
+        0x01095021, /* addu t2, t0, t1 */
+        0x01285823, /* subu t3, t1, t0 */
+        0x0129602d, /* daddu t4, t1, t1 */
+        0x0128682f, /* dsubu t5, t1, t0 */
+        0x00000000  /* nop */
+    };
+    struct cpu_state init = {0};
+    struct cpu_state expect = {0};
+    expect.regs[8] = 1;  /* t0 */
+    expect.regs[9] = 2;  /* t1 */
+    expect.regs[10] = 3; /* t2 */
+    expect.regs[11] = 1; /* t3 */
+    expect.regs[12] = 4; /* t4 */
+    expect.regs[13] = 1; /* t5 */
+    run_asm_test("unsigned", block, sizeof(block)/4, &init, &expect);
+}
+END_TEST
+
 START_TEST(test_memory_ops)
 {
     /* Basic loads and stores */
@@ -364,6 +387,7 @@ Suite *create_suite(void)
     tcase_add_test(tc_core, test_compile_example);
     tcase_add_test(tc_core, test_opcode_scenarios);
     tcase_add_test(tc_core, test_more_opcodes);
+    tcase_add_test(tc_core, test_unsigned_ops);
     tcase_add_test(tc_core, test_memory_ops);
     tcase_add_test(tc_core, test_delay_slots);
     suite_add_tcase(s, tc_core);
