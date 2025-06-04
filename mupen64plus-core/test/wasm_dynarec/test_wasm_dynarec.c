@@ -238,6 +238,69 @@ START_TEST(test_more_opcodes)
     expect.lo = 3;
     run_asm_test("muldiv", muldiv_block, sizeof(muldiv_block)/4, &init, &expect);
 
+    /* Signed multiply and divide with negative operands */
+    const uint32_t muldiv_neg_block[] = {
+        0x6408fff6, /* daddiu t0, zero, -10 */
+        0x64090003, /* daddiu t1, zero, 3 */
+        0x01090018, /* mult t0, t1 */
+        0x00005012, /* mflo t2 */
+        0x00005810, /* mfhi t3 */
+        0x0109001a, /* div t0, t1 */
+        0x00006012, /* mflo t4 */
+        0x00006810  /* mfhi t5 */
+    };
+    memset(&init, 0, sizeof(init));
+    memset(&expect, 0, sizeof(expect));
+    expect.regs[8]  = (uint64_t)-10; /* t0 */
+    expect.regs[9]  = 3;             /* t1 */
+    expect.regs[10] = (uint64_t)-30; /* t2 */
+    expect.regs[11] = (uint64_t)-1;  /* t3 */
+    expect.regs[12] = (uint64_t)-3;  /* t4 */
+    expect.regs[13] = (uint64_t)-1;  /* t5 */
+    expect.hi = (uint64_t)-1;
+    expect.lo = (uint64_t)-3;
+    run_asm_test("muldiv_neg", muldiv_neg_block,
+                 sizeof(muldiv_neg_block)/4, &init, &expect);
+
+    /* Multiplication overflow updates HI */
+    const uint32_t mult_overflow_block[] = {
+        0x3c088000, /* lui t0, 0x8000 */
+        0x35080000, /* ori t0, t0, 0 */
+        0x3c098000, /* lui t1, 0x8000 */
+        0x35290000, /* ori t1, t1, 0 */
+        0x01090018, /* mult t0, t1 */
+        0x00005012, /* mflo t2 */
+        0x00005810  /* mfhi t3 */
+    };
+    memset(&init, 0, sizeof(init));
+    memset(&expect, 0, sizeof(expect));
+    expect.regs[8]  = 0x80000000ULL; /* t0 */
+    expect.regs[9]  = 0x80000000ULL; /* t1 */
+    expect.regs[10] = 4611686018427388000ULL; /* t2 */
+    expect.regs[11] = 0x40000000ULL;          /* t3 */
+    expect.hi = 0x40000000ULL;
+    expect.lo = 4611686018427388000ULL;
+    run_asm_test("mul_overflow", mult_overflow_block,
+                 sizeof(mult_overflow_block)/4, &init, &expect);
+
+    /* Divide by a negative value */
+    const uint32_t div_neg_block[] = {
+        0x6408000a, /* daddiu t0, zero, 10 */
+        0x6409fffd, /* daddiu t1, zero, -3 */
+        0x0109001a, /* div t0, t1 */
+        0x00005012, /* mflo t2 */
+        0x00005810  /* mfhi t3 */
+    };
+    memset(&init, 0, sizeof(init));
+    memset(&expect, 0, sizeof(expect));
+    expect.regs[8]  = 10;            /* t0 */
+    expect.regs[9]  = (uint64_t)-3;  /* t1 */
+    expect.regs[10] = (uint64_t)-3;  /* t2 quotient */
+    expect.regs[11] = 1;             /* t3 remainder */
+    expect.hi = 1;
+    expect.lo = (uint64_t)-3;
+    run_asm_test("div_neg", div_neg_block, sizeof(div_neg_block)/4, &init, &expect);
+
     /* Set-less-than variants */
     const uint32_t slt_block[] = {
         0x3c080000, /* lui t0, 0 */
@@ -361,6 +424,39 @@ START_TEST(test_memory_ops)
 }
 END_TEST
 
+START_TEST(test_unaligned_ops)
+{
+    const uint32_t block[] = {
+        0x3c080000, /* lui t0, 0 */
+        0x35082000, /* ori t0, t0, 0x2000 */
+        0x3c090123, /* lui t1, 0x0123 */
+        0x35294567, /* ori t1, t1, 0x4567 */
+        0xad090000, /* sw t1, 0(t0) */
+        0x3c0989ab, /* lui t1, 0x89ab */
+        0x3529cdef, /* ori t1, t1, 0xcdef */
+        0xad090004, /* sw t1, 4(t0) */
+        0x890a0001, /* lwl t2, 1(t0) */
+        0x990b0002, /* lwr t3, 2(t0) */
+        0xa90a0003, /* swl t2, 3(t0) */
+        0xb90b0000, /* swr t3, 0(t0) */
+        0xb10a0008, /* sdl t2, 8(t0) */
+        0xb50b000c, /* sdr t3, 12(t0) */
+        0xc10c0000, /* ll t4, 0(t0) */
+        0xe10c0010, /* sc t4, 16(t0) */
+        0x00000000  /* nop */
+    };
+    struct cpu_state init = {0};
+    struct cpu_state expect = {0};
+    expect.regs[8]  = 0x2000;      /* t0 */
+    expect.regs[9]  = 0x89abcdef;  /* t1 */
+    /* Values exceed 53-bit precision, use rounded JS Number equivalents */
+    expect.regs[10] = 18446744073424413000ULL; /* t2 */
+    expect.regs[11] = 18446744072869577000ULL; /* t3 */
+    expect.regs[12] = 1;           /* t4 after sc */
+    run_asm_test("unaligned", block, sizeof(block)/4, &init, &expect);
+}
+END_TEST
+
 START_TEST(test_delay_slots)
 {
     /* Branch taken - delay slot must execute */
@@ -394,6 +490,114 @@ START_TEST(test_delay_slots)
     expect.regs[8] = 1;  /* t0 */
     expect.regs[9] = 4;  /* t1 after delay slot and jump */
     run_asm_test("delay_bne_not", not_block, sizeof(not_block)/4, &init, &expect);
+}
+END_TEST
+
+START_TEST(test_branch_likely)
+{
+    /* BEQL - branch not taken skips delay slot */
+    const uint32_t beql_block[] = {
+        0x20080001, /* addi t0, zero, 1 */
+        0x20090002, /* addi t1, zero, 2 */
+        0x51090002, /* beql t0, t1, 2 */
+        0x200a0005, /* addi t2, zero, 5 (delay slot) */
+        0x00000000, /* nop */
+        0x00000000  /* nop target */
+    };
+    struct cpu_state init = {0};
+    struct cpu_state expect = {0};
+    expect.regs[8]  = 1; /* t0 */
+    expect.regs[9]  = 2; /* t1 */
+    expect.regs[10] = 0; /* t2 remains 0 */
+    run_asm_test("beql_skip", beql_block, sizeof(beql_block)/4, &init, &expect);
+
+    /* BNEL - branch not taken skips delay slot */
+    const uint32_t bnel_block[] = {
+        0x20080001, /* addi t0, zero, 1 */
+        0x20090001, /* addi t1, zero, 1 */
+        0x55090002, /* bnel t0, t1, 2 */
+        0x200a0005, /* addi t2, zero, 5 (delay slot) */
+        0x00000000, /* nop */
+        0x00000000  /* nop target */
+    };
+    memset(&init, 0, sizeof(init));
+    memset(&expect, 0, sizeof(expect));
+    expect.regs[8]  = 1; /* t0 */
+    expect.regs[9]  = 1; /* t1 */
+    expect.regs[10] = 0; /* t2 remains 0 */
+    run_asm_test("bnel_skip", bnel_block, sizeof(bnel_block)/4, &init, &expect);
+
+    /* BLEZL - branch not taken skips delay slot */
+    const uint32_t blezl_block[] = {
+        0x20080001, /* addi t0, zero, 1 */
+        0x59000002, /* blezl t0, 2 */
+        0x20090005, /* addi t1, zero, 5 (delay slot) */
+        0x00000000, /* nop */
+        0x00000000  /* nop target */
+    };
+    memset(&init, 0, sizeof(init));
+    memset(&expect, 0, sizeof(expect));
+    expect.regs[8] = 1; /* t0 */
+    expect.regs[9] = 0; /* t1 remains 0 */
+    run_asm_test("blezl_skip", blezl_block, sizeof(blezl_block)/4, &init, &expect);
+
+    /* BGTZL - branch not taken skips delay slot */
+    const uint32_t bgtzl_block[] = {
+        0x20080000, /* addi t0, zero, 0 */
+        0x5d000002, /* bgtzl t0, 2 */
+        0x20090005, /* addi t1, zero, 5 (delay slot) */
+        0x00000000, /* nop */
+        0x00000000  /* nop target */
+    };
+    memset(&init, 0, sizeof(init));
+    memset(&expect, 0, sizeof(expect));
+    expect.regs[8] = 0; /* t0 */
+    expect.regs[9] = 0; /* t1 remains 0 */
+    run_asm_test("bgtzl_skip", bgtzl_block, sizeof(bgtzl_block)/4, &init, &expect);
+
+    /* BLTZL - branch not taken skips delay slot */
+    const uint32_t bltzl_block[] = {
+        0x20080001, /* addi t0, zero, 1 */
+        0x05020002, /* bltzl t0, 2 */
+        0x20090005, /* addi t1, zero, 5 (delay slot) */
+        0x00000000, /* nop */
+        0x00000000  /* nop target */
+    };
+    memset(&init, 0, sizeof(init));
+    memset(&expect, 0, sizeof(expect));
+    expect.regs[8] = 1; /* t0 */
+    expect.regs[9] = 0; /* t1 remains 0 */
+    run_asm_test("bltzl_skip", bltzl_block, sizeof(bltzl_block)/4, &init, &expect);
+
+    /* BGEZL - branch not taken skips delay slot */
+    const uint32_t bgezl_block[] = {
+        0x2008ffff, /* addi t0, zero, -1 */
+        0x05030002, /* bgezl t0, 2 */
+        0x20090005, /* addi t1, zero, 5 (delay slot) */
+        0x00000000, /* nop */
+        0x00000000  /* nop target */
+    };
+    memset(&init, 0, sizeof(init));
+    memset(&expect, 0, sizeof(expect));
+    expect.regs[8] = (uint64_t)-1; /* t0 */
+    expect.regs[9] = 0;           /* t1 remains 0 */
+    run_asm_test("bgezl_skip", bgezl_block, sizeof(bgezl_block)/4, &init, &expect);
+
+    /* BGEZAL - branch taken updates link register */
+    const uint32_t bgezal_block[] = {
+        0x20080000, /* addi t0, zero, 0 */
+        0x05110002, /* bgezal t0, 2 */
+        0x20090005, /* addi t1, zero, 5 (delay slot) */
+        0x00000000, /* nop */
+        0x00000000  /* nop target */
+    };
+    memset(&init, 0, sizeof(init));
+    memset(&expect, 0, sizeof(expect));
+    expect.regs[8]  = 0;                      /* t0 */
+    expect.regs[9]  = 5;                      /* t1 */
+    expect.regs[31] = 0xffffffff8000000cULL;  /* ra */
+    run_asm_test("bgezal_link", bgezal_block, sizeof(bgezal_block)/4, &init, &expect);
+
 }
 END_TEST
 
@@ -455,6 +659,36 @@ START_TEST(test_cp1_moves)
 }
 END_TEST
 
+START_TEST(test_complex_control_flow)
+{
+    /* Loop with branches, delay slots and a dynamic jump back inside the block */
+    const uint32_t block[] = {
+        0x20080001, /* addi t0, zero, 1 */
+        0x20090000, /* addi t1, zero, 0 */
+        0x11090002, /* beq t0, t1, 2 */
+        0x200a0005, /* addi t2, zero, 5 (delay) */
+        0x21290001, /* addi t1, t1, 1 */
+        0x15280000, /* bne t1, t0, 0 */
+        0x200b0002, /* addi t3, zero, 2 (delay) */
+        0x200c0003, /* addi t4, zero, 3 */
+        0x3c0d8000, /* lui t5, 0x8000 */
+        0x35ad0018, /* ori t5, t5, 0x0018 */
+        0x01a00008, /* jr t5 */
+        0x00000000  /* nop (delay) */
+    };
+    struct cpu_state init = {0};
+    struct cpu_state expect = {0};
+    expect.regs[8]  = 1;               /* t0 */
+    expect.regs[9]  = 1;               /* t1 */
+    expect.regs[10] = 5;               /* t2 */
+    expect.regs[11] = 2;               /* t3 */
+    expect.regs[12] = 3;               /* t4 */
+    expect.regs[13] = 0x80000018;      /* t5 jump target */
+    expect.pcaddr   = 0x80000018;      /* pcaddr after jr */
+    run_asm_test("complex", block, sizeof(block)/4, &init, &expect);
+}
+END_TEST
+
 Suite *create_suite(void)
 {
     Suite *s = suite_create("WebAssembly Dynarec");
@@ -464,9 +698,12 @@ Suite *create_suite(void)
     tcase_add_test(tc_core, test_more_opcodes);
     tcase_add_test(tc_core, test_unsigned_ops);
     tcase_add_test(tc_core, test_memory_ops);
+    tcase_add_test(tc_core, test_unaligned_ops);
     tcase_add_test(tc_core, test_delay_slots);
+    tcase_add_test(tc_core, test_branch_likely);
     tcase_add_test(tc_core, test_cp0_moves);
     tcase_add_test(tc_core, test_cp1_moves);
+    tcase_add_test(tc_core, test_complex_control_flow);
     suite_add_tcase(s, tc_core);
     return s;
 }
