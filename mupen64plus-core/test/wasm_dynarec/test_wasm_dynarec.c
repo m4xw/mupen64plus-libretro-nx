@@ -31,6 +31,8 @@ struct cpu_state {
     uint64_t hi;
     uint64_t lo;
     uint32_t pcaddr;
+    uint32_t cp0[32];
+    uint64_t cp1[32];
 };
 
 static void run_asm_test(const char *name, const uint32_t *code, size_t count,
@@ -76,18 +78,33 @@ static void run_asm_test(const char *name, const uint32_t *code, size_t count,
     for (int i = 0; i < 32; i++) {
         fprintf(json, "%s%llu", i ? ", " : "", (unsigned long long)initial->regs[i]);
     }
-    fprintf(json, "], \"hi\": %llu, \"lo\": %llu, \"pcaddr\": %u},\n",
+    fprintf(json, "], \"hi\": %llu, \"lo\": %llu, \"pcaddr\": %u, \"cp0\": [",
             (unsigned long long)initial->hi,
             (unsigned long long)initial->lo,
             initial->pcaddr);
-    fprintf(json, "  \"expected\": {\"regs\": [");
+    for (int i = 0; i < 32; i++) {
+        fprintf(json, "%s%u", i ? ", " : "", initial->cp0[i]);
+    }
+    fprintf(json, "], \"cp1\": [");
+    for (int i = 0; i < 32; i++) {
+        fprintf(json, "%s%llu", i ? ", " : "", (unsigned long long)initial->cp1[i]);
+    }
+    fprintf(json, "]},\n  \"expected\": {\"regs\": [");
     for (int i = 0; i < 32; i++) {
         fprintf(json, "%s%llu", i ? ", " : "", (unsigned long long)expected->regs[i]);
     }
-    fprintf(json, "], \"hi\": %llu, \"lo\": %llu, \"pcaddr\": %u}\n}\n",
+    fprintf(json, "], \"hi\": %llu, \"lo\": %llu, \"pcaddr\": %u, \"cp0\": [",
             (unsigned long long)expected->hi,
             (unsigned long long)expected->lo,
             expected->pcaddr);
+    for (int i = 0; i < 32; i++) {
+        fprintf(json, "%s%u", i ? ", " : "", expected->cp0[i]);
+    }
+    fprintf(json, "], \"cp1\": [");
+    for (int i = 0; i < 32; i++) {
+        fprintf(json, "%s%llu", i ? ", " : "", (unsigned long long)expected->cp1[i]);
+    }
+    fprintf(json, "]}\n}\n");
     fclose(json);
 
     snprintf(cmd, sizeof(cmd),
@@ -380,6 +397,64 @@ START_TEST(test_delay_slots)
 }
 END_TEST
 
+START_TEST(test_cp0_moves)
+{
+    const uint32_t block[] = {
+        0x3c081234, /* lui t0, 0x1234 */
+        0x35085678, /* ori t0, t0, 0x5678 */
+        0x40880000, /* mtc0 t0, index */
+        0x402a0000, /* dmfc0 t2, index */
+        0x3c091111, /* lui t1, 0x1111 */
+        0x35292222, /* ori t1, t1, 0x2222 */
+        0x40a90000, /* dmtc0 t1, index */
+        0x400b0000, /* mfc0 t3, index */
+        0x00000000  /* nop */
+    };
+    struct cpu_state init = {0};
+    struct cpu_state expect = {0};
+    expect.regs[8]  = 0x12345678;
+    expect.regs[9]  = 0x11112222;
+    expect.regs[10] = 0x12345678;
+    expect.regs[11] = 0x11112222;
+    expect.cp0[0]   = 0x11112222;
+    run_asm_test("cp0_moves", block, sizeof(block)/4, &init, &expect);
+}
+END_TEST
+
+START_TEST(test_cp1_moves)
+{
+    const uint32_t block[] = {
+        0x3c081234, /* lui t0, 0x1234 */
+        0x35085678, /* ori t0, t0, 0x5678 */
+        0x44880000, /* mtc1 t0, f0 */
+        0x44090000, /* mfc1 t1, f0 */
+        0x44a80800, /* dmtc1 t0, f1 */
+        0x442a0800, /* dmfc1 t2, f1 */
+        0x3c0b0000, /* lui t3, 0 */
+        0x356b2000, /* ori t3, t3, 0x2000 */
+        0xad680000, /* sw t0, 0(t3) */
+        0xc5620000, /* lwc1 f2, 0(t3) */
+        0xe5620004, /* swc1 f2, 4(t3) */
+        0xd5630004, /* ldc1 f3, 4(t3) */
+        0xf563000c, /* sdc1 f3, 12(t3) */
+        0x8d6e0004, /* lw t6, 4(t3) */
+        0xdd6f000c, /* ld t7, 12(t3) */
+        0x00000000  /* nop */
+    };
+    struct cpu_state init = {0};
+    struct cpu_state expect = {0};
+    expect.regs[8]  = 0x12345678;      /* t0 */
+    expect.regs[9]  = 0x12345678;      /* t1 */
+    expect.regs[10] = 0x12345678;      /* t2 */
+    expect.regs[11] = 0x2000;          /* t3 */
+    expect.regs[14] = 0x12345678;      /* t6 */
+    expect.regs[15] = 0x12345678;      /* t7 */
+    for (int i = 0; i < 4; i++)
+        expect.cp1[i] = 0x12345678ULL;
+    run_asm_test("cp1_moves", block, sizeof(block)/4, &init, &expect);
+}
+END_TEST
+
 Suite *create_suite(void)
 {
     Suite *s = suite_create("WebAssembly Dynarec");
@@ -390,6 +465,8 @@ Suite *create_suite(void)
     tcase_add_test(tc_core, test_unsigned_ops);
     tcase_add_test(tc_core, test_memory_ops);
     tcase_add_test(tc_core, test_delay_slots);
+    tcase_add_test(tc_core, test_cp0_moves);
+    tcase_add_test(tc_core, test_cp1_moves);
     suite_add_tcase(s, tc_core);
     return s;
 }

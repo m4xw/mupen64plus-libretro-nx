@@ -12,6 +12,9 @@
 #define HI_OFFSET offsetof(struct new_dynarec_hot_state, hi)
 #define LO_OFFSET offsetof(struct new_dynarec_hot_state, lo)
 #define PC_OFFSET offsetof(struct new_dynarec_hot_state, pcaddr)
+#define CP0_OFFSET(r) (offsetof(struct new_dynarec_hot_state, cp0_regs) + (r) * sizeof(uint32_t))
+#define CP1_SIMPLE_OFFSET(r) (offsetof(struct new_dynarec_hot_state, cp1_regs_simple) + (r) * sizeof(float *))
+#define CP1_DOUBLE_OFFSET(r) (offsetof(struct new_dynarec_hot_state, cp1_regs_double) + (r) * sizeof(double *))
 
 struct wasm_dynarec_block
 {
@@ -953,6 +956,114 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                (size_t)GPR_OFFSET(rs), imm,
                (size_t)GPR_OFFSET(rt));
         break;
+    case 0x10: {
+        uint32_t sub = rs;
+        switch (sub) {
+        case 0x00:
+            append(buf, size,
+                   "    ;; mfc0 r%u, c%u\n"
+                   "    local.get $base i32.load offset=%zu\n"
+                   "    i64.extend_i32_s\n"
+                   "    local.set $t\n"
+                   "    local.get $base\n"
+                   "    local.get $t\n"
+                   "    i64.store offset=%zu\n",
+                   rt, rd,
+                   (size_t)CP0_OFFSET(rd),
+                   (size_t)GPR_OFFSET(rt));
+            break;
+        case 0x01:
+            append(buf, size,
+                   "    ;; dmfc0 r%u, c%u\n"
+                   "    local.get $base i32.load offset=%zu\n"
+                   "    i64.extend_i32_s\n"
+                   "    local.set $t\n"
+                   "    local.get $base\n"
+                   "    local.get $t\n"
+                   "    i64.store offset=%zu\n",
+                   rt, rd,
+                   (size_t)CP0_OFFSET(rd),
+                   (size_t)GPR_OFFSET(rt));
+            break;
+        case 0x04:
+        case 0x05:
+            append(buf, size,
+                   "    ;; mtc0/dmtc0 r%u, c%u\n"
+                   "    local.get $base\n"
+                   "    local.get $base i64.load offset=%zu\n"
+                   "    i32.wrap_i64\n"
+                   "    i32.store offset=%zu\n",
+                   rt, rd,
+                   (size_t)GPR_OFFSET(rt),
+                   (size_t)CP0_OFFSET(rd));
+            break;
+        default:
+            append(buf, size,
+                   "    ;; unsupported COP0 subop %u\n", sub);
+            break;
+        }
+        break; }
+    case 0x11: {
+        uint32_t sub = rs;
+        switch (sub) {
+        case 0x00:
+            append(buf, size,
+                   "    ;; mfc1 r%u, f%u\n"
+                   "    local.get $base i64.load offset=%zu\n"
+                   "    i32.wrap_i64\n"
+                   "    i32.load\n"
+                   "    i64.extend_i32_s\n"
+                   "    local.set $t\n"
+                   "    local.get $base\n"
+                   "    local.get $t\n"
+                   "    i64.store offset=%zu\n",
+                   rt, rd,
+                   (size_t)CP1_SIMPLE_OFFSET(rd),
+                   (size_t)GPR_OFFSET(rt));
+            break;
+        case 0x01:
+            append(buf, size,
+                   "    ;; dmfc1 r%u, f%u\n"
+                   "    local.get $base i64.load offset=%zu\n"
+                   "    i32.wrap_i64\n"
+                   "    i64.load\n"
+                   "    local.set $t\n"
+                   "    local.get $base\n"
+                   "    local.get $t\n"
+                   "    i64.store offset=%zu\n",
+                   rt, rd,
+                   (size_t)CP1_DOUBLE_OFFSET(rd),
+                   (size_t)GPR_OFFSET(rt));
+            break;
+        case 0x04:
+            append(buf, size,
+                   "    ;; mtc1 r%u, f%u\n"
+                   "    local.get $base i64.load offset=%zu\n"
+                   "    i32.wrap_i64\n"
+                   "    local.get $base i64.load offset=%zu\n"
+                   "    i32.wrap_i64\n"
+                   "    i32.store\n",
+                   rt, rd,
+                   (size_t)CP1_SIMPLE_OFFSET(rd),
+                   (size_t)GPR_OFFSET(rt));
+            break;
+        case 0x05:
+            append(buf, size,
+                   "    ;; dmtc1 r%u, f%u\n"
+                   "    local.get $base i64.load offset=%zu\n"
+                   "    i32.wrap_i64\n"
+                   "    local.get $base i64.load offset=%zu\n"
+                   "    i64.store\n",
+                   rt, rd,
+                   (size_t)CP1_DOUBLE_OFFSET(rd),
+                   (size_t)GPR_OFFSET(rt));
+            break;
+        default:
+            append(buf, size,
+                   "    ;; unsupported COP1 subop %u\n", sub);
+            break;
+        }
+        break; }
     case 0x20:
         append(buf, size,
                "    ;; lb r%u, %d(r%u)\n"
@@ -1106,6 +1217,40 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                (size_t)GPR_OFFSET(rs), imm,
                (size_t)GPR_OFFSET(rt));
         break;
+    case 0x31:
+        append(buf, size,
+               "    ;; lwc1 f%u, %d(r%u)\n"
+               "    local.get $base i64.load offset=%zu\n"
+               "    i64.const %d\n"
+               "    i64.add\n"
+               "    i32.wrap_i64\n"
+               "    i32.load\n"
+               "    local.set $tmp\n"
+               "    local.get $base i64.load offset=%zu\n"
+               "    i32.wrap_i64\n"
+               "    local.get $tmp\n"
+               "    i32.store\n",
+               rt, imm, rs,
+               (size_t)GPR_OFFSET(rs), imm,
+               (size_t)CP1_SIMPLE_OFFSET(rt));
+        break;
+    case 0x35:
+        append(buf, size,
+               "    ;; ldc1 f%u, %d(r%u)\n"
+               "    local.get $base i64.load offset=%zu\n"
+               "    i64.const %d\n"
+               "    i64.add\n"
+               "    i32.wrap_i64\n"
+               "    i64.load\n"
+               "    local.set $t\n"
+               "    local.get $base i64.load offset=%zu\n"
+               "    i32.wrap_i64\n"
+               "    local.get $t\n"
+               "    i64.store\n",
+               rt, imm, rs,
+               (size_t)GPR_OFFSET(rs), imm,
+               (size_t)CP1_DOUBLE_OFFSET(rt));
+        break;
     case 0x28:
         append(buf, size,
                "    ;; sb r%u, %d(r%u)\n"
@@ -1244,6 +1389,36 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base\n"
                "    i64.store offset=%zu\n",
                (size_t)GPR_OFFSET(rt));
+        break;
+    case 0x39:
+        append(buf, size,
+               "    ;; swc1 f%u, %d(r%u)\n"
+               "    local.get $base i64.load offset=%zu\n"
+               "    i64.const %d\n"
+               "    i64.add\n"
+               "    i32.wrap_i64\n"
+               "    local.get $base i64.load offset=%zu\n"
+               "    i32.wrap_i64\n"
+               "    i32.load\n"
+               "    i32.store\n",
+               rt, imm, rs,
+               (size_t)GPR_OFFSET(rs), imm,
+               (size_t)CP1_SIMPLE_OFFSET(rt));
+        break;
+    case 0x3d:
+        append(buf, size,
+               "    ;; sdc1 f%u, %d(r%u)\n"
+               "    local.get $base i64.load offset=%zu\n"
+               "    i64.const %d\n"
+               "    i64.add\n"
+               "    i32.wrap_i64\n"
+               "    local.get $base i64.load offset=%zu\n"
+               "    i32.wrap_i64\n"
+               "    i64.load\n"
+               "    i64.store\n",
+               rt, imm, rs,
+               (size_t)GPR_OFFSET(rs), imm,
+               (size_t)CP1_DOUBLE_OFFSET(rt));
         break;
     case 0x3f:
         append(buf, size,
