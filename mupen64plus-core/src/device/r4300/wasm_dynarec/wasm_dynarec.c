@@ -68,7 +68,7 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
     switch (op) {
     case 0x00:
         switch (funct) {
-        case 0x20: case 0x21:
+        case 0x20:
             append(buf, size,
                    "    ;; add r%u, r%u, r%u\n"
                    "    local.get $base i64.load offset=%zu\n"
@@ -83,7 +83,22 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                    (size_t)GPR_OFFSET(rt),
                    (size_t)GPR_OFFSET(rd));
             break;
-        case 0x2c: case 0x2d:
+        case 0x21:
+            append(buf, size,
+                   "    ;; addu r%u, r%u, r%u\n"
+                   "    local.get $base i64.load offset=%zu\n"
+                   "    local.get $base i64.load offset=%zu\n"
+                   "    i64.add\n"
+                   "    local.set $t\n"
+                   "    local.get $base\n"
+                   "    local.get $t\n"
+                   "    i64.store offset=%zu\n",
+                   rd, rs, rt,
+                   (size_t)GPR_OFFSET(rs),
+                   (size_t)GPR_OFFSET(rt),
+                   (size_t)GPR_OFFSET(rd));
+            break;
+        case 0x2c:
             append(buf, size,
                    "    ;; dadd r%u, r%u, r%u\n"
                    "    local.get $base i64.load offset=%zu\n"
@@ -98,7 +113,22 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                    (size_t)GPR_OFFSET(rt),
                    (size_t)GPR_OFFSET(rd));
             break;
-        case 0x2e: case 0x2f:
+        case 0x2d:
+            append(buf, size,
+                   "    ;; daddu r%u, r%u, r%u\n"
+                   "    local.get $base i64.load offset=%zu\n"
+                   "    local.get $base i64.load offset=%zu\n"
+                   "    i64.add\n"
+                   "    local.set $t\n"
+                   "    local.get $base\n"
+                   "    local.get $t\n"
+                   "    i64.store offset=%zu\n",
+                   rd, rs, rt,
+                   (size_t)GPR_OFFSET(rs),
+                   (size_t)GPR_OFFSET(rt),
+                   (size_t)GPR_OFFSET(rd));
+            break;
+        case 0x2e:
             append(buf, size,
                    "    ;; dsub r%u, r%u, r%u\n"
                    "    local.get $base i64.load offset=%zu\n"
@@ -113,9 +143,39 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                    (size_t)GPR_OFFSET(rt),
                    (size_t)GPR_OFFSET(rd));
             break;
-        case 0x22: case 0x23:
+        case 0x2f:
+            append(buf, size,
+                   "    ;; dsubu r%u, r%u, r%u\n"
+                   "    local.get $base i64.load offset=%zu\n"
+                   "    local.get $base i64.load offset=%zu\n"
+                   "    i64.sub\n"
+                   "    local.set $t\n"
+                   "    local.get $base\n"
+                   "    local.get $t\n"
+                   "    i64.store offset=%zu\n",
+                   rd, rs, rt,
+                   (size_t)GPR_OFFSET(rs),
+                   (size_t)GPR_OFFSET(rt),
+                   (size_t)GPR_OFFSET(rd));
+            break;
+        case 0x22:
             append(buf, size,
                    "    ;; sub r%u, r%u, r%u\n"
+                   "    local.get $base i64.load offset=%zu\n"
+                   "    local.get $base i64.load offset=%zu\n"
+                   "    i64.sub\n"
+                   "    local.set $t\n"
+                   "    local.get $base\n"
+                   "    local.get $t\n"
+                   "    i64.store offset=%zu\n",
+                   rd, rs, rt,
+                   (size_t)GPR_OFFSET(rs),
+                   (size_t)GPR_OFFSET(rt),
+                   (size_t)GPR_OFFSET(rd));
+            break;
+        case 0x23:
+            append(buf, size,
+                   "    ;; subu r%u, r%u, r%u\n"
                    "    local.get $base i64.load offset=%zu\n"
                    "    local.get $base i64.load offset=%zu\n"
                    "    i64.sub\n"
@@ -255,18 +315,22 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
             break;
         case 0x00: {
             uint32_t sa = (inst >> 6) & 0x1f;
-            append(buf, size,
-                   "    ;; sll r%u, r%u, %u\n"
-                   "    local.get $base i64.load offset=%zu\n"
-                   "    i64.const %u\n"
-                   "    i64.shl\n"
-                   "    local.set $t\n"
-                   "    local.get $base\n"
-                   "    local.get $t\n"
-                   "    i64.store offset=%zu\n",
-                   rd, rt, sa,
-                   (size_t)GPR_OFFSET(rt), sa,
-                   (size_t)GPR_OFFSET(rd));
+            if (rd == 0 && rt == 0 && sa == 0) {
+                append(buf, size, "    ;; nop\n");
+            } else {
+                append(buf, size,
+                       "    ;; sll r%u, r%u, %u\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i64.const %u\n"
+                       "    i64.shl\n"
+                       "    local.set $t\n"
+                       "    local.get $base\n"
+                       "    local.get $t\n"
+                       "    i64.store offset=%zu\n",
+                       rd, rt, sa,
+                       (size_t)GPR_OFFSET(rt), sa,
+                       (size_t)GPR_OFFSET(rd));
+            }
             break; }
         case 0x02: {
             uint32_t sa = (inst >> 6) & 0x1f;
@@ -719,7 +783,7 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
         }
         break;
 
-    case 0x08: case 0x09:
+    case 0x08:
         append(buf, size,
                "    ;; addi r%u, r%u, %d\n"
                "    local.get $base i64.load offset=%zu\n"
@@ -733,9 +797,37 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                (size_t)GPR_OFFSET(rs), imm,
                (size_t)GPR_OFFSET(rt));
         break;
-    case 0x18: case 0x19:
+    case 0x09:
+        append(buf, size,
+               "    ;; addiu r%u, r%u, %d\n"
+               "    local.get $base i64.load offset=%zu\n"
+               "    i64.const %d\n"
+               "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
+               "    i64.store offset=%zu\n",
+               rt, rs, imm,
+               (size_t)GPR_OFFSET(rs), imm,
+               (size_t)GPR_OFFSET(rt));
+        break;
+    case 0x18:
         append(buf, size,
                "    ;; daddi r%u, r%u, %d\n"
+               "    local.get $base i64.load offset=%zu\n"
+               "    i64.const %d\n"
+               "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
+               "    i64.store offset=%zu\n",
+               rt, rs, imm,
+               (size_t)GPR_OFFSET(rs), imm,
+               (size_t)GPR_OFFSET(rt));
+        break;
+    case 0x19:
+        append(buf, size,
+               "    ;; daddiu r%u, r%u, %d\n"
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
