@@ -28,6 +28,46 @@ The following projects have been incorporated into this repository:
 - [parallel-rsp](https://github.com/Themaister/parallel-rsp)
 - [angrylion-rdp-plus](https://github.com/ata4/angrylion-rdp-plus) (Currently based on it's [ParaLLel](https://github.com/libretro/parallel-n64/) variant)
 
+### Experimental WebAssembly dynamic recompiler
+
+This repository now includes an experimental dynamic recompiler that
+targets WebAssembly.  The source can be found in
+`mupen64plus-core/src/device/r4300/wasm_dynarec/`.  The backend can
+translate a growing subset of arithmetic, logical, memory access, and
+control-flow instructions into WebAssembly text.  Generated code now loads and
+stores registers relative to the `new_dynarec_hot_state` structure so that it
+can eventually be executed directly.  A simple dispatcher function recompiles
+and prints blocks using this state.  Branch translation still accounts for delay
+slots and "likely" semantics.  Nearly all integer opcodes are now translated,
+including conditional moves like `MOVN/MOVZ`, 64-bit arithmetic and the
+unaligned or atomic load/store variants.  Dynamic `JR`/`JALR` instructions
+store their runtime target to `pcaddr` and invoke a host dispatcher so control
+flows to the correct block.  Direct `J`/`JAL` calls jump within the compiled
+block when possible; if the target lies outside the current block, the
+dispatcher is invoked with that static address instead.
+Recent updates added handling for less common instructions such as `LDL/LDR`,
+system calls (`SYSCALL`, `BREAK`, `SYNC`), and cache management opcodes.
+`CACHE` and `PREF` are currently treated as no-ops.
+Floating point and coprocessor instructions remain unimplemented. Execution of
+the generated code is not yet implemented
+so the emulator continues to fall back to the cached interpreter.
+
+ An accompanying unit test in `mupen64plus-core/test/wasm_dynarec` demonstrates
+ translating a small MIPS routine to WebAssembly text. The test assembles the
+ generated WAT using `wat2wasm` from the
+ [WABT toolkit](https://github.com/WebAssembly/wabt) to ensure it is valid
+ WebAssembly code.  The same directory also provides a small Node.js script
+ `run_generated_wasm.js` that instantiates this module, initializes a minimal
+ CPU state and executes the exported block using the browser-style WebAssembly
+ API.
+
+Future work for the WebAssembly backend includes:
+ - hooking generated code into the CPU core for execution
+ - completing opcode coverage, especially for floating point and system
+   instructions
+ - emitting binary WebAssembly modules instead of text only
+ - optimizing register usage and memory access patterns
+
 #### Acknowledgments
 
 A special thanks to:
