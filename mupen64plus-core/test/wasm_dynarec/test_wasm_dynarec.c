@@ -70,10 +70,31 @@ static void run_asm_test(const char *name, const uint32_t *code, size_t count,
     int ret = system(cmd);
     ck_assert_msg(ret == 0, "wat2wasm failed: %d", ret);
 
-    /* Execution of the generated WebAssembly is not implemented yet. Normally
-     * this test would run the module and compare CPU state using a helper
-     * script. Until execution support exists we simply confirm that the WAT
-     * assembles successfully. */
+    FILE *json = fopen(json_path, "w");
+    ck_assert_ptr_nonnull(json);
+    fprintf(json, "{\n  \"initial\": {\"regs\": [");
+    for (int i = 0; i < 32; i++) {
+        fprintf(json, "%s%llu", i ? ", " : "", (unsigned long long)initial->regs[i]);
+    }
+    fprintf(json, "], \"hi\": %llu, \"lo\": %llu, \"pcaddr\": %u},\n",
+            (unsigned long long)initial->hi,
+            (unsigned long long)initial->lo,
+            initial->pcaddr);
+    fprintf(json, "  \"expected\": {\"regs\": [");
+    for (int i = 0; i < 32; i++) {
+        fprintf(json, "%s%llu", i ? ", " : "", (unsigned long long)expected->regs[i]);
+    }
+    fprintf(json, "], \"hi\": %llu, \"lo\": %llu, \"pcaddr\": %u}\n}\n",
+            (unsigned long long)expected->hi,
+            (unsigned long long)expected->lo,
+            expected->pcaddr);
+    fclose(json);
+
+    snprintf(cmd, sizeof(cmd),
+             "node mupen64plus-core/test/wasm_dynarec/run_generated_wasm.js %s %s",
+             wasm_path, json_path);
+    ret = system(cmd);
+    ck_assert_msg(ret == 0, "WebAssembly execution failed: %d", ret);
 
     wasm_dynarec_cleanup();
     free(cpu);
@@ -169,7 +190,7 @@ START_TEST(test_more_opcodes)
     expect.regs[10] = 0x0;
     expect.regs[11] = 0xfff0;
     expect.regs[12] = 0xfff0;
-    expect.regs[13] = 0xffff000f;
+    expect.regs[13] = 0xffffffffffff000fULL;
     expect.regs[14] = 0xf00;
     expect.regs[15] = 0xff0;
     expect.regs[16] = 0xff0;
@@ -237,9 +258,102 @@ START_TEST(test_more_opcodes)
     memset(&init, 0, sizeof(init));
     memset(&expect, 0, sizeof(expect));
     expect.regs[4]  = 1;
+    expect.regs[5]  = 2;
     expect.regs[6]  = 3;
-    expect.regs[31] = 0x80000008;
+    expect.regs[31] = 0xffffffff80000008ULL;
+    expect.pcaddr   = 0x80000008;
     run_asm_test("jal", jal_block, sizeof(jal_block)/4, &init, &expect);
+}
+END_TEST
+
+START_TEST(test_memory_ops)
+{
+    /* Basic loads and stores */
+    const uint32_t mem_block[] = {
+        0x3c080000, /* lui t0, 0 */
+        0x35082000, /* ori t0, t0, 0x2000 */
+        0x3c091234, /* lui t1, 0x1234 */
+        0x35295678, /* ori t1, t1, 0x5678 */
+        0xad090000, /* sw t1, 0(t0) */
+        0x810a0000, /* lb t2, 0(t0) */
+        0x850b0000, /* lh t3, 0(t0) */
+        0x8d0c0000, /* lw t4, 0(t0) */
+        0x910d0000, /* lbu t5, 0(t0) */
+        0x950e0000, /* lhu t6, 0(t0) */
+        0x9d0f0000, /* lwu t7, 0(t0) */
+        0x3c09ffff, /* lui t1, 0xffff */
+        0x3529ffff, /* ori t1, t1, 0xffff */
+        0xad090004, /* sw t1, 4(t0) */
+        0x81100004, /* lb s0, 4(t0) */
+        0x91110004, /* lbu s1, 4(t0) */
+        0x85120004, /* lh s2, 4(t0) */
+        0x95130004, /* lhu s3, 4(t0) */
+        0x8d140004, /* lw s4, 4(t0) */
+        0x9d150004, /* lwu s5, 4(t0) */
+        0x3c091234, /* lui t1, 0x1234 */
+        0x35295678, /* ori t1, t1, 0x5678 */
+        0x0009483c, /* dsll32 t1, t1, 0 */
+        0x3c0a8765, /* lui t2, 0x8765 */
+        0x354a4321, /* ori t2, t2, 0x4321 */
+        0x012a4825, /* or t1, t1, t2 */
+        0xfd090008, /* sd t1, 8(t0) */
+        0xdd160008, /* ld s6, 8(t0) */
+        0x00000000  /* nop */
+    };
+    struct cpu_state init = {0};
+    struct cpu_state expect = {0};
+    expect.regs[8]  = 0x2000;                 /* t0 */
+    expect.regs[9]  = 0x1234567887654321ULL;  /* t1 */
+    expect.regs[10] = 0x87654321;             /* t2 */
+    expect.regs[11] = 0x5678;                 /* t3 */
+    expect.regs[12] = 0x12345678;             /* t4 */
+    expect.regs[13] = 0x78;                   /* t5 */
+    expect.regs[14] = 0x5678;                 /* t6 */
+    expect.regs[15] = 0x12345678;             /* t7 */
+    expect.regs[16] = 0xffffffffffffffffULL;  /* s0 */
+    expect.regs[17] = 0xff;                   /* s1 */
+    expect.regs[18] = 0xffffffffffffffffULL;  /* s2 */
+    expect.regs[19] = 0xffff;                 /* s3 */
+    expect.regs[20] = 0xffffffffffffffffULL;  /* s4 */
+    expect.regs[21] = 0xffffffff;             /* s5 */
+    expect.regs[22] = 0x1234567887654321ULL;  /* s6 */
+    run_asm_test("memory", mem_block, sizeof(mem_block)/4, &init, &expect);
+}
+END_TEST
+
+START_TEST(test_delay_slots)
+{
+    /* Branch taken - delay slot must execute */
+    const uint32_t taken_block[] = {
+        0x20080000, /* addi t0, zero, 0 */
+        0x11000002, /* beq  t0, zero, 2 */
+        0x20090005, /* addi t1, zero, 5  (delay slot) */
+        0x2009000a, /* addi t1, zero, 10 (skipped) */
+        0x2009000f, /* addi t1, zero, 15 */
+        0x00000000  /* nop */
+    };
+    struct cpu_state init = {0};
+    struct cpu_state expect = {0};
+    expect.regs[8] = 0;  /* t0 */
+    expect.regs[9] = 15; /* t1 */
+    run_asm_test("delay_beq_taken", taken_block, sizeof(taken_block)/4,
+                 &init, &expect);
+
+    /* Branch not taken - delay slot executes before fall-through */
+    const uint32_t not_block[] = {
+        0x20080001, /* addi t0, zero, 1 */
+        0x15000003, /* bne  t0, zero, 3 */
+        0x20090001, /* addi t1, zero, 1  (delay slot) */
+        0x21290001, /* addi t1, t1, 1 */
+        0x08000006, /* j 0x18 */
+        0x20090004, /* addi t1, zero, 4 (skipped) */
+        0x00000000  /* nop */
+    };
+    memset(&init, 0, sizeof(init));
+    memset(&expect, 0, sizeof(expect));
+    expect.regs[8] = 1;  /* t0 */
+    expect.regs[9] = 4;  /* t1 after delay slot and jump */
+    run_asm_test("delay_bne_not", not_block, sizeof(not_block)/4, &init, &expect);
 }
 END_TEST
 
@@ -248,6 +362,10 @@ Suite *create_suite(void)
     Suite *s = suite_create("WebAssembly Dynarec");
     TCase *tc_core = tcase_create("Core");
     tcase_add_test(tc_core, test_compile_example);
+    tcase_add_test(tc_core, test_opcode_scenarios);
+    tcase_add_test(tc_core, test_more_opcodes);
+    tcase_add_test(tc_core, test_memory_ops);
+    tcase_add_test(tc_core, test_delay_slots);
     suite_add_tcase(s, tc_core);
     return s;
 }
