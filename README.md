@@ -51,6 +51,7 @@ system calls (`SYSCALL`, `BREAK`, `SYNC`), and cache management opcodes.
 Floating point and coprocessor instructions remain unimplemented. Execution of
 the generated code is not yet implemented
 so the emulator continues to fall back to the cached interpreter.
+A table showing current opcode coverage can be found in [docs/wasm_dynarec_opcode_coverage.md](docs/wasm_dynarec_opcode_coverage.md).
 
  An accompanying unit test in `mupen64plus-core/test/wasm_dynarec` demonstrates
  translating a small MIPS routine to WebAssembly text. The test assembles the
