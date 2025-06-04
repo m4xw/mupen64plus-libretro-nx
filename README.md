@@ -58,9 +58,22 @@ A table showing current opcode coverage can be found in [docs/wasm_dynarec_opcod
  generated WAT using `wat2wasm` from the
  [WABT toolkit](https://github.com/WebAssembly/wabt) to ensure it is valid
  WebAssembly code.  The same directory also provides a small Node.js script
- `run_generated_wasm.js` that instantiates this module, initializes a minimal
- CPU state and executes the exported block using the browser-style WebAssembly
- API.
+`run_generated_wasm.js` that instantiates this module, initializes a minimal
+CPU state and executes the exported block using the browser-style WebAssembly
+API.
+
+Additional unit tests exercise signed multiply/divide edge cases to ensure the
+HI and LO registers receive correctly sign-extended results even when operands
+are negative or the product overflows 32 bits.
+Another test builds a small loop with nested branches and a dynamic `JR`
+to jump back inside the block, verifying delay slots and that `pcaddr` is
+updated correctly when control flow becomes complex.
+
+To help approach full opcode coverage a helper script named
+`generate_opcode_tests.py` under the same directory parses
+`mips_instructions.def` and assembles one-off test blocks for any opcode with a
+known template.  Running the script will emit the machine code words used for
+each block and write the temporary assembly files beneath `generated/`.
 
 Future work for the WebAssembly backend includes:
  - hooking generated code into the CPU core for execution

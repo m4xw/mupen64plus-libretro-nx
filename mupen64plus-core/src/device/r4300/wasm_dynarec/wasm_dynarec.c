@@ -1385,8 +1385,8 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                (size_t)GPR_OFFSET(rs), imm,
                (size_t)GPR_OFFSET(rt));
         append(buf, size,
-               "    i64.const 1\n"
                "    local.get $base\n"
+               "    i64.const 1\n"
                "    i64.store offset=%zu\n",
                (size_t)GPR_OFFSET(rt));
         break;
@@ -1607,7 +1607,7 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
 
             int likely = (op >= 0x14);
             const char *condop = NULL;
-            switch (op & 0x1f) {
+            switch (op & 0x07) {
             case 0x04: condop = "eq"; break;
             case 0x05: condop = "ne"; break;
             case 0x06: condop = "le_s"; break;
@@ -1624,7 +1624,7 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
             append(&block->wat, &block->wat_size,
                    "    local.get $base i64.load offset=%zu\n",
                    (size_t)GPR_OFFSET(rs));
-            if (op == 0x04 || op == 0x05) {
+            if (op == 0x04 || op == 0x05 || op == 0x14 || op == 0x15) {
                 append(&block->wat, &block->wat_size,
                        "    local.get $base i64.load offset=%zu\n"
                        "    i64.%s\n",
@@ -1693,8 +1693,21 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
                 append(&block->wat, &block->wat_size, "    if\n");
                 if (likely)
                     emit_simple_instr(&block->wat, &block->wat_size, delay);
+                uint32_t linkpc = address + (i + 1) * 4 + 4;
                 append(&block->wat, &block->wat_size,
-                       rtcode & 0x10 ? "      local.get $base\n      call $block_%08x ;; link r31\n" : "      local.get $base\n      call $block_%08x\n",
+                       "      local.get $base\n");
+                if (rtcode & 0x10) {
+                    append(&block->wat, &block->wat_size,
+                           "      i32.const %u\n"
+                           "      i64.extend_i32_s\n"
+                           "      i64.store offset=%zu\n",
+                           linkpc,
+                           (size_t)GPR_OFFSET(31));
+                    append(&block->wat, &block->wat_size,
+                           "      local.get $base\n");
+                }
+                append(&block->wat, &block->wat_size,
+                       "      call $block_%08x\n",
                        target);
                 append(&block->wat, &block->wat_size,
                        "    else\n      local.get $base\n      call $block_%08x\n    end\n",
