@@ -33,6 +33,10 @@ const GPR_OFFSET = parseOffset('offsetof_struct_new_dynarec_hot_state_regs');
 const HI_OFFSET = parseOffset('offsetof_struct_new_dynarec_hot_state_hi');
 const LO_OFFSET = parseOffset('offsetof_struct_new_dynarec_hot_state_lo');
 const PC_OFFSET = parseOffset('offsetof_struct_new_dynarec_hot_state_pcaddr');
+const CP0_OFFSET = parseOffset('offsetof_struct_new_dynarec_hot_state_cp0_regs');
+const CP1_SIMPLE_OFFSET = parseOffset('offsetof_struct_new_dynarec_hot_state_cp1_regs_simple');
+const CP1_DOUBLE_OFFSET = parseOffset('offsetof_struct_new_dynarec_hot_state_cp1_regs_double');
+const CP1_REG_BASE = 0x8000;
 
 (async () => {
   const env = {
@@ -46,6 +50,14 @@ const PC_OFFSET = parseOffset('offsetof_struct_new_dynarec_hot_state_pcaddr');
     const val = BigInt(state.initial.regs[i]);
     view.setBigUint64(GPR_OFFSET + i * 8, val, true);
   }
+  for (let i = 0; i < 32; i++) {
+    view.setUint32(CP0_OFFSET + i * 4, state.initial.cp0[i] >>> 0, true);
+  }
+  for (let i = 0; i < 32; i++) {
+    view.setBigUint64(CP1_SIMPLE_OFFSET + i * 8, BigInt(CP1_REG_BASE + i * 8), true);
+    view.setBigUint64(CP1_DOUBLE_OFFSET + i * 8, BigInt(CP1_REG_BASE + i * 8), true);
+    view.setBigUint64(CP1_REG_BASE + i * 8, BigInt(state.initial.cp1[i]), true);
+  }
   view.setBigUint64(HI_OFFSET, BigInt(state.initial.hi), true);
   view.setBigUint64(LO_OFFSET, BigInt(state.initial.lo), true);
   view.setUint32(PC_OFFSET, state.initial.pcaddr, true);
@@ -57,6 +69,20 @@ const PC_OFFSET = parseOffset('offsetof_struct_new_dynarec_hot_state_pcaddr');
     const got = Number(view.getBigUint64(GPR_OFFSET + i * 8, true));
     if (got !== state.expected.regs[i]) {
       console.error(`r${i} expected ${state.expected.regs[i]} got ${got}`);
+      ok = false;
+    }
+  }
+  for (let i = 0; i < 32; i++) {
+    const got = view.getUint32(CP0_OFFSET + i * 4, true);
+    if (got !== state.expected.cp0[i]) {
+      console.error(`cp0_${i} expected ${state.expected.cp0[i]} got ${got}`);
+      ok = false;
+    }
+  }
+  for (let i = 0; i < 32; i++) {
+    const got = Number(view.getBigUint64(CP1_REG_BASE + i * 8, true));
+    if (got !== state.expected.cp1[i]) {
+      console.error(`cp1_${i} expected ${state.expected.cp1[i]} got ${got}`);
       ok = false;
     }
   }
