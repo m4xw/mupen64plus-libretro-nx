@@ -12,10 +12,27 @@ const statePath = process.argv[3];
 const wasmBuffer = fs.readFileSync(wasmPath);
 const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
 
-const GPR_OFFSET = 320; // offsetof(struct new_dynarec_hot_state, regs)
-const HI_OFFSET = 576;  // offsetof(struct new_dynarec_hot_state, hi)
-const LO_OFFSET = 584;  // offsetof(struct new_dynarec_hot_state, lo)
-const PC_OFFSET = 264;  // offsetof(struct new_dynarec_hot_state, pcaddr)
+// Parse offset constants from the asm_defines header generated during the
+// build.  This mirrors the gawk logic in the main Makefile that creates the
+// same table for the assembly dynarec backends so the values stay in sync
+// even when the structure layout changes or the build targets another
+// architecture.
+const asmPath = path.join(__dirname, '..', '..', 'src', 'device', 'r4300',
+                          'new_dynarec', 'arm64', 'asm_defines_gas.h');
+const asmText = fs.readFileSync(asmPath, 'utf8');
+
+function parseOffset(name) {
+  const regex = new RegExp(`#define\\s+${name}\\s+\\((0x[0-9a-fA-F]+)\\)`);
+  const match = asmText.match(regex);
+  if (!match)
+    throw new Error(`Unable to find ${name} in ${asmPath}`);
+  return parseInt(match[1], 16);
+}
+
+const GPR_OFFSET = parseOffset('offsetof_struct_new_dynarec_hot_state_regs');
+const HI_OFFSET = parseOffset('offsetof_struct_new_dynarec_hot_state_hi');
+const LO_OFFSET = parseOffset('offsetof_struct_new_dynarec_hot_state_lo');
+const PC_OFFSET = parseOffset('offsetof_struct_new_dynarec_hot_state_pcaddr');
 
 (async () => {
   const env = {
