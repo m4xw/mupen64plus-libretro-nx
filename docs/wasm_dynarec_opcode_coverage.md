@@ -151,6 +151,14 @@ Memory access instructions call the core memory subsystem via imported callbacks
 | FLOOR_L_S |
 | FLOOR_W_D |
 | FLOOR_W_S |
+| ROUND_L_D |
+| ROUND_L_S |
+| ROUND_W_D |
+| ROUND_W_S |
+| TRUNC_L_D |
+| TRUNC_L_S |
+| TRUNC_W_D |
+| TRUNC_W_S |
 
 ## Not yet implemented
 
@@ -202,18 +210,10 @@ Memory access instructions call the core memory subsystem via imported callbacks
 | NI |
 | RESERVED |
 | RESERVED_COP2 |
-| ROUND_L_D |
-| ROUND_L_S |
-| ROUND_W_D |
-| ROUND_W_S |
 | SQRT_D |
 | SQRT_S |
 | TLBP |
 | TLBR |
 | TLBWI |
 | TLBWR |
-| TRUNC_L_D |
-| TRUNC_L_S |
-| TRUNC_W_D |
-| TRUNC_W_S |
 

@@ -1257,6 +1257,38 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                        (size_t)CP1_SIMPLE_OFFSET(fd),
                        (size_t)CP1_SIMPLE_OFFSET(fs));
                 break;
+            case 0x08:
+                append(buf, size,
+                       "    ;; round.l.s f%u, f%u\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    i32.load\n"
+                       "    f32.reinterpret_i32\n"
+                       "    f32.nearest\n"
+                       "    i64.trunc_f32_s\n"
+                       "    i64.store\n",
+                       fd, fs,
+                       (size_t)CP1_DOUBLE_OFFSET(fd),
+                       (size_t)CP1_SIMPLE_OFFSET(fs));
+                break;
+            case 0x09:
+                append(buf, size,
+                       "    ;; trunc.l.s f%u, f%u\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    i32.load\n"
+                       "    f32.reinterpret_i32\n"
+                       "    f32.trunc\n"
+                       "    i64.trunc_f32_s\n"
+                       "    i64.store\n",
+                       fd, fs,
+                       (size_t)CP1_DOUBLE_OFFSET(fd),
+                       (size_t)CP1_SIMPLE_OFFSET(fs));
+                break;
             case 0x0a:
                 append(buf, size,
                        "    ;; ceil.l.s f%u, f%u\n"
@@ -1287,6 +1319,38 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                        "    i64.store\n",
                        fd, fs,
                        (size_t)CP1_DOUBLE_OFFSET(fd),
+                       (size_t)CP1_SIMPLE_OFFSET(fs));
+                break;
+            case 0x0c:
+                append(buf, size,
+                       "    ;; round.w.s f%u, f%u\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    i32.load\n"
+                       "    f32.reinterpret_i32\n"
+                       "    f32.nearest\n"
+                       "    i32.trunc_f32_s\n"
+                       "    i32.store\n",
+                       fd, fs,
+                       (size_t)CP1_SIMPLE_OFFSET(fd),
+                       (size_t)CP1_SIMPLE_OFFSET(fs));
+                break;
+            case 0x0d:
+                append(buf, size,
+                       "    ;; trunc.w.s f%u, f%u\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    i32.load\n"
+                       "    f32.reinterpret_i32\n"
+                       "    f32.trunc\n"
+                       "    i32.trunc_f32_s\n"
+                       "    i32.store\n",
+                       fd, fs,
+                       (size_t)CP1_SIMPLE_OFFSET(fd),
                        (size_t)CP1_SIMPLE_OFFSET(fs));
                 break;
             case 0x0e:
@@ -1506,6 +1570,38 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                        (size_t)CP1_DOUBLE_OFFSET(fd),
                        (size_t)CP1_DOUBLE_OFFSET(fs));
                 break;
+            case 0x08:
+                append(buf, size,
+                       "    ;; round.l.d f%u, f%u\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    i64.load\n"
+                       "    f64.reinterpret_i64\n"
+                       "    f64.nearest\n"
+                       "    i64.trunc_f64_s\n"
+                       "    i64.store\n",
+                       fd, fs,
+                       (size_t)CP1_DOUBLE_OFFSET(fd),
+                       (size_t)CP1_DOUBLE_OFFSET(fs));
+                break;
+            case 0x09:
+                append(buf, size,
+                       "    ;; trunc.l.d f%u, f%u\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    i64.load\n"
+                       "    f64.reinterpret_i64\n"
+                       "    f64.trunc\n"
+                       "    i64.trunc_f64_s\n"
+                       "    i64.store\n",
+                       fd, fs,
+                       (size_t)CP1_DOUBLE_OFFSET(fd),
+                       (size_t)CP1_DOUBLE_OFFSET(fs));
+                break;
             case 0x0a:
                 append(buf, size,
                        "    ;; ceil.l.d f%u, f%u\n"
@@ -1536,6 +1632,38 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                        "    i64.store\n",
                        fd, fs,
                        (size_t)CP1_DOUBLE_OFFSET(fd),
+                       (size_t)CP1_DOUBLE_OFFSET(fs));
+                break;
+            case 0x0c:
+                append(buf, size,
+                       "    ;; round.w.d f%u, f%u\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    i64.load\n"
+                       "    f64.reinterpret_i64\n"
+                       "    f64.nearest\n"
+                       "    i32.trunc_f64_s\n"
+                       "    i32.store\n",
+                       fd, fs,
+                       (size_t)CP1_SIMPLE_OFFSET(fd),
+                       (size_t)CP1_DOUBLE_OFFSET(fs));
+                break;
+            case 0x0d:
+                append(buf, size,
+                       "    ;; trunc.w.d f%u, f%u\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    i64.load\n"
+                       "    f64.reinterpret_i64\n"
+                       "    f64.trunc\n"
+                       "    i32.trunc_f64_s\n"
+                       "    i32.store\n",
+                       fd, fs,
+                       (size_t)CP1_SIMPLE_OFFSET(fd),
                        (size_t)CP1_DOUBLE_OFFSET(fs));
                 break;
             case 0x0e:
