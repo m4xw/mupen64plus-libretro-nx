@@ -1255,6 +1255,52 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                        (size_t)CP1_SIMPLE_OFFSET(fd),
                        (size_t)CP1_SIMPLE_OFFSET(fs));
                 break;
+            case 0x21:
+                append(buf, size,
+                       "    ;; cvt.d.s f%u, f%u\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    i32.load\n"
+                       "    f32.reinterpret_i32\n"
+                       "    f64.promote_f32\n"
+                       "    i64.reinterpret_f64\n"
+                       "    i64.store\n",
+                       fd, fs,
+                       (size_t)CP1_DOUBLE_OFFSET(fd),
+                       (size_t)CP1_SIMPLE_OFFSET(fs));
+                break;
+            case 0x24:
+                append(buf, size,
+                       "    ;; cvt.w.s f%u, f%u\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    i32.load\n"
+                       "    f32.reinterpret_i32\n"
+                       "    i32.trunc_f32_s\n"
+                       "    i32.store\n",
+                       fd, fs,
+                       (size_t)CP1_SIMPLE_OFFSET(fd),
+                       (size_t)CP1_SIMPLE_OFFSET(fs));
+                break;
+            case 0x25:
+                append(buf, size,
+                       "    ;; cvt.l.s f%u, f%u\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    i32.load\n"
+                       "    f32.reinterpret_i32\n"
+                       "    i64.trunc_f32_s\n"
+                       "    i64.store\n",
+                       fd, fs,
+                       (size_t)CP1_DOUBLE_OFFSET(fd),
+                       (size_t)CP1_SIMPLE_OFFSET(fs));
+                break;
             default:
                 append(buf, size,
                        "    ;; unsupported COP1 fmt %u funct %u\n", sub, funct);
@@ -1388,6 +1434,130 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                        "    i64.load\n"
                        "    f64.reinterpret_i64\n"
                        "    f64.neg\n"
+                       "    i64.reinterpret_f64\n"
+                       "    i64.store\n",
+                       fd, fs,
+                       (size_t)CP1_DOUBLE_OFFSET(fd),
+                       (size_t)CP1_DOUBLE_OFFSET(fs));
+                break;
+            case 0x20:
+                append(buf, size,
+                       "    ;; cvt.s.d f%u, f%u\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    i64.load\n"
+                       "    f64.reinterpret_i64\n"
+                       "    f32.demote_f64\n"
+                       "    i32.reinterpret_f32\n"
+                       "    i32.store\n",
+                       fd, fs,
+                       (size_t)CP1_SIMPLE_OFFSET(fd),
+                       (size_t)CP1_DOUBLE_OFFSET(fs));
+                break;
+            case 0x24:
+                append(buf, size,
+                       "    ;; cvt.w.d f%u, f%u\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    i64.load\n"
+                       "    f64.reinterpret_i64\n"
+                       "    i32.trunc_f64_s\n"
+                       "    i32.store\n",
+                       fd, fs,
+                       (size_t)CP1_SIMPLE_OFFSET(fd),
+                       (size_t)CP1_DOUBLE_OFFSET(fs));
+                break;
+            case 0x25:
+                append(buf, size,
+                       "    ;; cvt.l.d f%u, f%u\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    i64.load\n"
+                       "    f64.reinterpret_i64\n"
+                       "    i64.trunc_f64_s\n"
+                       "    i64.store\n",
+                       fd, fs,
+                       (size_t)CP1_DOUBLE_OFFSET(fd),
+                       (size_t)CP1_DOUBLE_OFFSET(fs));
+                break;
+            default:
+                append(buf, size,
+                       "    ;; unsupported COP1 fmt %u funct %u\n", sub, funct);
+                break;
+            }
+            break; }
+        case 0x14: {
+            uint32_t fs = (inst >> 11) & 0x1f;
+            switch (funct) {
+            case 0x20:
+                append(buf, size,
+                       "    ;; cvt.s.w f%u, f%u\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    i32.load\n"
+                       "    f32.convert_i32_s\n"
+                       "    i32.reinterpret_f32\n"
+                       "    i32.store\n",
+                       fd, fs,
+                       (size_t)CP1_SIMPLE_OFFSET(fd),
+                       (size_t)CP1_SIMPLE_OFFSET(fs));
+                break;
+            case 0x21:
+                append(buf, size,
+                       "    ;; cvt.d.w f%u, f%u\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    i32.load\n"
+                       "    f64.convert_i32_s\n"
+                       "    i64.reinterpret_f64\n"
+                       "    i64.store\n",
+                       fd, fs,
+                       (size_t)CP1_DOUBLE_OFFSET(fd),
+                       (size_t)CP1_SIMPLE_OFFSET(fs));
+                break;
+            default:
+                append(buf, size,
+                       "    ;; unsupported COP1 fmt %u funct %u\n", sub, funct);
+                break;
+            }
+            break; }
+        case 0x15: {
+            uint32_t fs = (inst >> 11) & 0x1f;
+            switch (funct) {
+            case 0x20:
+                append(buf, size,
+                       "    ;; cvt.s.l f%u, f%u\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    i64.load\n"
+                       "    f32.convert_i64_s\n"
+                       "    i32.reinterpret_f32\n"
+                       "    i32.store\n",
+                       fd, fs,
+                       (size_t)CP1_SIMPLE_OFFSET(fd),
+                       (size_t)CP1_DOUBLE_OFFSET(fs));
+                break;
+            case 0x21:
+                append(buf, size,
+                       "    ;; cvt.d.l f%u, f%u\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i32.wrap_i64\n"
+                       "    i64.load\n"
+                       "    f64.convert_i64_s\n"
                        "    i64.reinterpret_f64\n"
                        "    i64.store\n",
                        fd, fs,

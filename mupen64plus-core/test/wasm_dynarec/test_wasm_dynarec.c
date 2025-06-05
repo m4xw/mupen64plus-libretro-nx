@@ -7,6 +7,20 @@
 #include "device/r4300/wasm_dynarec/wasm_dynarec.h"
 #include "device/memory/memory.h"
 
+#define ENCODE_COP1(fmt, ft, fs, fd, func) \
+    ((0x11u << 26) | ((fmt) << 21) | ((ft) << 16) | ((fs) << 11) | ((fd) << 6) | (func))
+
+#define CVT_D_S(fd, fs) ENCODE_COP1(0x10, 0, fs, fd, 0x21)
+#define CVT_S_D(fd, fs) ENCODE_COP1(0x11, 0, fs, fd, 0x20)
+#define CVT_W_S(fd, fs) ENCODE_COP1(0x10, 0, fs, fd, 0x24)
+#define CVT_W_D(fd, fs) ENCODE_COP1(0x11, 0, fs, fd, 0x24)
+#define CVT_L_S(fd, fs) ENCODE_COP1(0x10, 0, fs, fd, 0x25)
+#define CVT_L_D(fd, fs) ENCODE_COP1(0x11, 0, fs, fd, 0x25)
+#define CVT_S_W(fd, fs) ENCODE_COP1(0x14, 0, fs, fd, 0x20)
+#define CVT_D_W(fd, fs) ENCODE_COP1(0x14, 0, fs, fd, 0x21)
+#define CVT_S_L(fd, fs) ENCODE_COP1(0x15, 0, fs, fd, 0x20)
+#define CVT_D_L(fd, fs) ENCODE_COP1(0x15, 0, fs, fd, 0x21)
+
 /* minimal stubs to satisfy the dynarec build */
 void DebugMessage(int level, const char *fmt, ...) {}
 uint32_t *fast_mem_access(struct r4300_core *r4300, uint32_t address) { return NULL; }
@@ -170,7 +184,7 @@ START_TEST(test_opcode_scenarios)
         0x00431822
     };
     memset(&init_state, 0, sizeof(init_state));
-    memset(&expect_state, 0, sizeof(expect_state));
+    memcpy(&expect_state, &init_state, sizeof(expect_state));
     expect_state.hot.regs[2] = 8;
     expect_state.hot.regs[3] = 3;
     run_asm_test("arith", arith_block, sizeof(arith_block)/4, &init_state, &expect_state);
@@ -860,6 +874,43 @@ START_TEST(test_complex_control_flow)
 }
 END_TEST
 
+START_TEST(test_fp_conversions)
+{
+    const uint32_t block[] = {
+        CVT_D_S(2, 0),
+        CVT_S_D(3, 2),
+        CVT_W_S(4, 0),
+        CVT_W_D(5, 2),
+        CVT_L_S(6, 0),
+        CVT_L_D(7, 2),
+        CVT_S_W(8, 4),
+        CVT_S_L(9, 6),
+        CVT_D_W(10, 4),
+        CVT_D_L(11, 6),
+        0x00000000
+    };
+    memset(&init_state, 0, sizeof(init_state));
+    {
+        float val = 1.5f;
+        memcpy(&init_state.cp1[0], &val, sizeof(val));
+    }
+    memset(&expect_state, 0, sizeof(expect_state));
+    expect_state.cp1[0]  = init_state.cp1[0];
+    expect_state.cp1[1]  = 0;
+    expect_state.cp1[2]  = 0x3ff8000000000000ULL; /* double 1.5 */
+    expect_state.cp1[3]  = init_state.cp1[0];    /* back to 1.5f */
+    expect_state.cp1[4]  = 0x0000000000000001ULL; /* int 1 */
+    expect_state.cp1[5]  = 0x0000000000000001ULL; /* int 1 */
+    expect_state.cp1[6]  = 0x0000000000000001ULL; /* long 1 */
+    expect_state.cp1[7]  = 0x0000000000000001ULL; /* long 1 */
+    expect_state.cp1[8]  = 0x000000003f800000ULL; /* float 1.0 */
+    expect_state.cp1[9]  = 0x000000003f800000ULL; /* float 1.0 */
+    expect_state.cp1[10] = 0x3ff0000000000000ULL; /* double 1.0 */
+    expect_state.cp1[11] = 0x3ff0000000000000ULL; /* double 1.0 */
+    run_asm_test("fp_conv", block, sizeof(block)/4, &init_state, &expect_state);
+}
+END_TEST
+
 Suite *create_suite(void)
 {
     Suite *s = suite_create("WebAssembly Dynarec");
@@ -878,6 +929,7 @@ Suite *create_suite(void)
     tcase_add_test(tc_core, test_shift_64);
     tcase_add_test(tc_core, test_muldiv_64);
     tcase_add_test(tc_core, test_ldl_ldr);
+    tcase_add_test(tc_core, test_fp_conversions);
     tcase_add_test(tc_core, test_complex_control_flow);
     suite_add_tcase(s, tc_core);
     return s;
