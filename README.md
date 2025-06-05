@@ -60,6 +60,9 @@ CPU state and executes the exported block using the browser-style WebAssembly
 API.
 When compiled with Emscripten the `wasm_dynarec_exec` function now calls a JavaScript helper. This helper uses `Module['wabt']` or `Binaryen` to compile the generated WAT into a binary module before running it. The runtime must provide one of these objects so execution can proceed. Memory accesses from JavaScript use helper functions exported with `EMSCRIPTEN_KEEPALIVE`.
 
+For detailed steps on compiling the core for the web see
+[docs/emscripten_build.md](docs/emscripten_build.md).
+
 Additional unit tests exercise signed multiply/divide edge cases to ensure the
 HI and LO registers receive correctly sign-extended results even when operands
 are negative or the product overflows 32 bits.
