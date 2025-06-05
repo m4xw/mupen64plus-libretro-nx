@@ -4,6 +4,8 @@
 #include "device/r4300/r4300_core.h"
 #include "device/r4300/new_dynarec/new_dynarec.h"
 #include "device/r4300/fpu.h"
+#include "device/r4300/cp0.h"
+#include "device/r4300/interrupt.h"
 #include "wasm3.h"
 #ifdef __EMSCRIPTEN__
 # include <emscripten/emscripten.h>
@@ -35,6 +37,25 @@ static struct wasm_dynarec_block *g_blocks = NULL;
 static size_t g_blocks_count = 0;
 
 static struct r4300_core *g_current_cpu = NULL;
+
+static void wasm_dynarec_update_count(struct r4300_core *r4300,
+                                      uint32_t start_pc)
+{
+    struct cp0 *cp0 = &r4300->cp0;
+    uint32_t *cp0_regs = r4300->new_dynarec_hot_state.cp0_regs;
+    int *cycle_count = &r4300->new_dynarec_hot_state.cycle_count;
+
+    uint32_t pc = r4300->new_dynarec_hot_state.pcaddr;
+    uint32_t count = ((pc - start_pc) >> 2) * cp0->count_per_op;
+    if (cp0->count_per_op_denom_pot) {
+        count += (1U << cp0->count_per_op_denom_pot) - 1;
+        count >>= cp0->count_per_op_denom_pot;
+    }
+
+    cp0_regs[CP0_COUNT_REG] += count;
+    *cycle_count += count;
+    cp0->last_addr = pc;
+}
 
 #ifndef __EMSCRIPTEN__
 m3ApiRawFunction(wasm_dynarec_dispatch_import)
@@ -2830,6 +2851,8 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
         return;
     }
 
+    uint32_t start_pc = address;
+
     DebugMessage(M64MSG_INFO, "Executing WebAssembly block %08x", address);
     DebugMessage(M64MSG_VERBOSE, "\n%s", block->wat);
 #ifdef __EMSCRIPTEN__
@@ -2839,6 +2862,10 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
                          sizeof(struct new_dynarec_hot_state),
                          offsetof(struct new_dynarec_hot_state, cp1_regs_simple),
                          offsetof(struct new_dynarec_hot_state, cp1_regs_double));
+
+    wasm_dynarec_update_count(r4300, start_pc);
+    if (r4300->new_dynarec_hot_state.cycle_count >= 0)
+        gen_interrupt(r4300);
 #else
     char wat_path[64];
     char wasm_path[64];
@@ -2905,6 +2932,10 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
     for (int i = 0; i < 32; i++)
         r4300->cp1.regs[i].dword = *(uint64_t*)(mem + 0x8000 + i*8);
 
+    wasm_dynarec_update_count(r4300, start_pc);
+    if (r4300->new_dynarec_hot_state.cycle_count >= 0)
+        gen_interrupt(r4300);
+
     g_current_cpu = NULL;
 
     m3_FreeRuntime(runtime);
@@ -2946,5 +2977,16 @@ void wasm_dynarec_dispatch(struct r4300_core *r4300, uint32_t address)
 
 void wasm_dynarec_entry(struct r4300_core *r4300)
 {
-    wasm_dynarec_dispatch(r4300, r4300->new_dynarec_hot_state.pcaddr);
+    while (!r4300->new_dynarec_hot_state.stop)
+    {
+        uint32_t pc = r4300->new_dynarec_hot_state.pcaddr;
+        wasm_dynarec_dispatch(r4300, pc);
+
+        if (r4300->new_dynarec_hot_state.pending_exception)
+            r4300->new_dynarec_hot_state.pending_exception = 0;
+    }
 }
+
+#ifndef HAVE_GEN_INTERRUPT
+__attribute__((weak)) void gen_interrupt(struct r4300_core* r4300) { (void)r4300; }
+#endif
