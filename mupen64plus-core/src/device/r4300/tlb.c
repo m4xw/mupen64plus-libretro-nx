@@ -107,7 +107,7 @@ uint32_t virtual_to_physical_address(struct r4300_core* r4300, uint32_t address,
     unsigned int addr = address >> 12;
 
 #ifdef NEW_DYNAREC
-    if (r4300->emumode == EMUMODE_DYNAREC)
+    if (r4300->emumode == EMUMODE_DYNAREC || r4300->emumode == EMUMODE_WASM_DYNAREC)
     {
         intptr_t map = r4300->new_dynarec_hot_state.memory_map[addr];
         if ((tlb->LUT_w[addr]) && (w == 1))
@@ -147,7 +147,7 @@ uint32_t virtual_to_physical_address(struct r4300_core* r4300, uint32_t address,
         TLB_refill_exception(r4300, address, w);
     } else if(IgnoreTLBExceptions == 1) {
         /* OnlyNotEnabled */
-        if(r4300->emumode == EMUMODE_DYNAREC)
+        if(r4300->emumode == EMUMODE_DYNAREC || r4300->emumode == EMUMODE_WASM_DYNAREC)
         {
             if(using_tlb)
             {

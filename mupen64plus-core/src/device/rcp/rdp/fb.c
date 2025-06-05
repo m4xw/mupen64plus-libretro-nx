@@ -196,7 +196,8 @@ void protect_framebuffers(struct fb* fb)
 
     /* check API support */
     if (!(gfx.fBGetFrameBufferInfo && gfx.fBRead && gfx.fBWrite)
-        || fb->r4300->emumode == EMUMODE_DYNAREC /* Dynarecs currently miss some of the read/writes needed for FBInfo */) {
+        || fb->r4300->emumode == EMUMODE_DYNAREC
+        || fb->r4300->emumode == EMUMODE_WASM_DYNAREC /* Dynarecs currently miss some of the read/writes needed for FBInfo */) {
         return;
     }
 

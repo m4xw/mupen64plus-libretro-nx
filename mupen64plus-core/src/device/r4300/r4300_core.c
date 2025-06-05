@@ -148,7 +148,7 @@ void run_r4300(struct r4300_core* r4300)
         run_pure_interpreter(r4300);
     }
 #if defined(DYNAREC)
-    else if (r4300->emumode >= 2)
+    else if (r4300->emumode == EMUMODE_DYNAREC)
     {
         DebugMessage(M64MSG_INFO, "Starting R4300 emulator: Dynamic Recompiler");
         r4300->emumode = EMUMODE_DYNAREC;
@@ -174,7 +174,14 @@ void run_r4300(struct r4300_core* r4300)
 #endif
         free_blocks(&r4300->cached_interp);
     }
-#endif
+    else if (r4300->emumode == EMUMODE_WASM_DYNAREC)
+    {
+        DebugMessage(M64MSG_INFO, "Starting R4300 emulator: WASM Dynarec");
+        r4300->emumode = EMUMODE_WASM_DYNAREC;
+        wasm_dynarec_init(r4300);
+        wasm_dynarec_entry(r4300);
+        wasm_dynarec_cleanup();
+    }
     else /* if (r4300->emumode == EMUMODE_INTERPRETER) */
     {
         DebugMessage(M64MSG_INFO, "Starting R4300 emulator: Cached Interpreter");
@@ -205,7 +212,7 @@ void run_r4300(struct r4300_core* r4300)
 
     /* print instruction counts */
 #if defined(COUNT_INSTR)
-    if (r4300->emumode == EMUMODE_DYNAREC)
+    if (r4300->emumode == EMUMODE_DYNAREC || r4300->emumode == EMUMODE_WASM_DYNAREC)
         instr_counters_print();
 #endif
 #ifdef OSAL_SSE
@@ -250,7 +257,7 @@ unsigned int* r4300_llbit(struct r4300_core* r4300)
 uint32_t* r4300_pc(struct r4300_core* r4300)
 {
 #ifdef NEW_DYNAREC
-    return (r4300->emumode == EMUMODE_DYNAREC)
+    return (r4300->emumode == EMUMODE_DYNAREC || r4300->emumode == EMUMODE_WASM_DYNAREC)
         ? (uint32_t*)&r4300->new_dynarec_hot_state.pcaddr
         : &(*r4300_pc_struct(r4300))->addr;
 #else
@@ -410,7 +417,7 @@ void invalidate_r4300_cached_code(struct r4300_core* r4300, uint32_t address, si
     if (r4300->emumode != EMUMODE_PURE_INTERPRETER)
     {
 #ifdef NEW_DYNAREC
-        if (r4300->emumode == EMUMODE_DYNAREC)
+        if (r4300->emumode == EMUMODE_DYNAREC || r4300->emumode == EMUMODE_WASM_DYNAREC)
         {
             invalidate_cached_code_new_dynarec(r4300, address, size);
         }
@@ -443,6 +450,10 @@ void generic_jump_to(struct r4300_core* r4300, uint32_t address)
 #else
         dynarec_jump_to(r4300, address);
 #endif
+        break;
+    case EMUMODE_WASM_DYNAREC:
+        r4300->new_dynarec_hot_state.pcaddr = address;
+        r4300->new_dynarec_hot_state.pending_exception = 1;
         break;
 #endif
 

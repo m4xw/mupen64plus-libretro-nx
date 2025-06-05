@@ -54,7 +54,7 @@
 #define PCADDR *r4300_pc(r4300)
 #ifdef NEW_DYNAREC
 #define ADD_TO_PC(x) \
-    if (r4300->emumode != EMUMODE_DYNAREC) \
+    if (r4300->emumode != EMUMODE_DYNAREC && r4300->emumode != EMUMODE_WASM_DYNAREC) \
       (*r4300_pc_struct(r4300)) += x; \
     else \
     { \

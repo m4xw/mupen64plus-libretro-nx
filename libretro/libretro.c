@@ -1398,6 +1398,8 @@ static void update_variables(bool startup)
              r4300_emumode = EMUMODE_INTERPRETER;
           else if (!strcmp(var.value, "dynamic_recompiler"))
              r4300_emumode = EMUMODE_DYNAREC;
+          else if (!strcmp(var.value, "wasm_dynarec"))
+             r4300_emumode = EMUMODE_WASM_DYNAREC;
        }
 
        var.key = CORE_NAME "-aspect";

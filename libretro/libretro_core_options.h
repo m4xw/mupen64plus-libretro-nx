@@ -1384,6 +1384,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
             {"cached_interpreter", "Cached Interpreter"},
 #ifdef DYNAREC
             {"dynamic_recompiler", "Dynarec"},
+            {"wasm_dynarec", "WASM Dynarec"},
 #endif
             { NULL, NULL },
         },

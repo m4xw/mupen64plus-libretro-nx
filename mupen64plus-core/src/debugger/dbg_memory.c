@@ -223,7 +223,7 @@ int get_has_recompiled(struct r4300_core* r4300, uint32_t addr)
 {
     unsigned char *assemb, *end_addr;
 
-    if (r4300->emumode != EMUMODE_DYNAREC || r4300->cached_interp.blocks[addr>>12] == NULL)
+    if ((r4300->emumode != EMUMODE_DYNAREC && r4300->emumode != EMUMODE_WASM_DYNAREC) || r4300->cached_interp.blocks[addr>>12] == NULL)
         return FALSE;
 
     assemb = (r4300->cached_interp.blocks[addr>>12]->code) +

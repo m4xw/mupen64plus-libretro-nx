@@ -154,7 +154,7 @@ void cp0_update_count(struct r4300_core* r4300)
     uint32_t* cp0_regs = r4300_cp0_regs(cp0);
 
 #ifdef NEW_DYNAREC
-    if (r4300->emumode != EMUMODE_DYNAREC)
+    if (r4300->emumode != EMUMODE_DYNAREC && r4300->emumode != EMUMODE_WASM_DYNAREC)
     {
 #endif
         uint32_t count = ((*r4300_pc(r4300) - cp0->last_addr) >> 2) * cp0->count_per_op;
@@ -185,7 +185,7 @@ static void exception_epilog(struct r4300_core* r4300)
 {
 #ifndef NO_ASM
 #ifndef NEW_DYNAREC
-    if (r4300->emumode == EMUMODE_DYNAREC)
+    if (r4300->emumode == EMUMODE_DYNAREC || r4300->emumode == EMUMODE_WASM_DYNAREC)
     {
         dyna_jump();
         if (!r4300->recomp.dyna_interp) { r4300->delay_slot = 0; }
@@ -194,11 +194,11 @@ static void exception_epilog(struct r4300_core* r4300)
 #endif
 
 #ifndef NEW_DYNAREC
-    if (r4300->emumode != EMUMODE_DYNAREC || r4300->recomp.dyna_interp)
+    if ((r4300->emumode != EMUMODE_DYNAREC && r4300->emumode != EMUMODE_WASM_DYNAREC) || r4300->recomp.dyna_interp)
     {
         r4300->recomp.dyna_interp = 0;
 #else
-    if (r4300->emumode != EMUMODE_DYNAREC)
+    if (r4300->emumode != EMUMODE_DYNAREC && r4300->emumode != EMUMODE_WASM_DYNAREC)
     {
 #endif
         if (r4300->delay_slot)
@@ -216,7 +216,7 @@ void TLB_refill_exception(struct r4300_core* r4300, uint32_t address, int w)
     uint32_t* cp0_regs = r4300_cp0_regs(&r4300->cp0);
     int usual_handler = 0, i;
 
-    if (r4300->emumode != EMUMODE_DYNAREC && w != 2) {
+    if (r4300->emumode != EMUMODE_DYNAREC && r4300->emumode != EMUMODE_WASM_DYNAREC && w != 2) {
         cp0_update_count(r4300);
     }
 
