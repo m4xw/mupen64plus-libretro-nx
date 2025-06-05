@@ -702,6 +702,129 @@ START_TEST(test_cp1_arith)
 }
 END_TEST
 
+START_TEST(test_shift_64)
+{
+    const uint32_t block[] = {
+        0x3c081234, /* lui t0, 0x1234 */
+        0x35085678, /* ori t0, t0, 0x5678 */
+        0x0008403c, /* dsll32 t0, t0, 0 */
+        0x3c099abc, /* lui t1, 0x9abc */
+        0x3529def0, /* ori t1, t1, 0xdef0 */
+        0x01094025, /* or t0, t0, t1 */
+        0x64090008, /* daddiu t1, zero, 8 */
+        0x0008513a, /* dsrl t2, t0, 4 */
+        0x0008593b, /* dsra t3, t0, 4 */
+        0x01286016, /* dsrlv t4, t0, t1 */
+        0x01286817, /* dsrav t5, t0, t1 */
+        0x01287014, /* dsllv t6, t0, t1 */
+        0x0008797e, /* dsrl32 t7, t0, 5 */
+        0x000880ff, /* dsra32 s0, t0, 3 */
+        0x00000000  /* nop */
+    };
+    struct cpu_state init = {0};
+    struct cpu_state expect = {0};
+    init.regs[8] = 0x123456789abcdef0ULL; /* t0 */
+    init.regs[9] = 0;                     /* t1 overwritten later */
+    expect = init;
+    expect.regs[9]  = 8;                  /* t1 */
+    expect.regs[10] = 81985529216486895ULL;  /* t2 */
+    expect.regs[11] = 81985529216486895ULL;  /* t3 */
+    expect.regs[12] = 5124095576030430ULL;   /* t4 */
+    expect.regs[13] = 5124095576030430ULL;   /* t5 */
+    expect.regs[14] = 3771334343958392832ULL;/* t6 */
+    expect.regs[15] = 9544371ULL;            /* t7 */
+    expect.regs[16] = 38177487ULL;           /* s0 */
+    run_asm_test("shift_64", block, sizeof(block)/4, &init, &expect);
+}
+END_TEST
+
+START_TEST(test_muldiv_64)
+{
+    const uint32_t block[] = {
+        0x6408000a, /* daddiu t0, zero, 10 */
+        0x64090003, /* daddiu t1, zero, 3 */
+        0x0109001c, /* dmult t0, t1 */
+        0x00005012, /* mflo t2 */
+        0x00005810, /* mfhi t3 */
+        0x0109001e, /* ddiv t0, t1 */
+        0x00006012, /* mflo t4 */
+        0x00006810, /* mfhi t5 */
+        0x0109001d, /* dmultu t0, t1 */
+        0x00007012, /* mflo t6 */
+        0x00007810, /* mfhi t7 */
+        0x0109001f, /* ddivu t0, t1 */
+        0x00008012, /* mflo s0 */
+        0x00008810, /* mfhi s1 */
+        0x6412fff6, /* daddiu s2, zero, -10 */
+        0x6413fffd, /* daddiu s3, zero, -3 */
+        0x0253001c, /* dmult s2, s3 */
+        0x0000a012, /* mflo s4 */
+        0x0000a810, /* mfhi s5 */
+        0x0253001e, /* ddiv s2, s3 */
+        0x0000b012, /* mflo s6 */
+        0x0000b810, /* mfhi s7 */
+        0x0253001d, /* dmultu s2, s3 */
+        0x0000c012, /* mflo t8 */
+        0x0000c810, /* mfhi t9 */
+        0x0253001f, /* ddivu s2, s3 */
+        0x0000d012, /* mflo k0 */
+        0x0000d810, /* mfhi k1 */
+        0x00000000  /* nop */
+    };
+    struct cpu_state init = {0};
+    struct cpu_state expect = {0};
+    expect.regs[8]  = 10;                                  /* t0 */
+    expect.regs[9]  = 3;                                   /* t1 */
+    expect.regs[10] = 30;                                  /* t2 */
+    expect.regs[11] = 0;                                   /* t3 */
+    expect.regs[12] = 3;                                   /* t4 */
+    expect.regs[13] = 1;                                   /* t5 */
+    expect.regs[14] = 30;                                  /* t6 */
+    expect.regs[15] = 0;                                   /* t7 */
+    expect.regs[16] = 3;                                   /* s0 */
+    expect.regs[17] = 1;                                   /* s1 */
+    expect.regs[18] = 18446744073709551606ULL;             /* s2 */
+    expect.regs[19] = 18446744073709551613ULL;             /* s3 */
+    expect.regs[20] = 30;                                  /* s4 */
+    expect.regs[21] = 0;                                   /* s5 */
+    expect.regs[22] = 3;                                   /* s6 */
+    expect.regs[23] = 18446744073709551615ULL;             /* s7 */
+    expect.regs[24] = 30;                                  /* t8 */
+    expect.regs[25] = 0;                                   /* t9 */
+    expect.regs[26] = 0;                                   /* k0 */
+    expect.regs[27] = 18446744073709551606ULL;             /* k1 */
+    expect.hi = 18446744073709551606ULL;                   /* final HI */
+    expect.lo = 0;                                        /* final LO */
+    run_asm_test("muldiv_64", block, sizeof(block)/4, &init, &expect);
+}
+END_TEST
+
+START_TEST(test_ldl_ldr)
+{
+    const uint32_t block[] = {
+        0x3c080000, /* lui t0, 0 */
+        0x35082000, /* ori t0, t0, 0x2000 */
+        0x3c091122, /* lui t1, 0x1122 */
+        0x35293344, /* ori t1, t1, 0x3344 */
+        0x0009483c, /* dsll32 t1, t1, 0 */
+        0x3c0a5566, /* lui t2, 0x5566 */
+        0x354a7788, /* ori t2, t2, 0x7788 */
+        0x012a4825, /* or t1, t1, t2 */
+        0xfd090000, /* sd t1, 0(t0) */
+        0x690a0001, /* ldl t2, 1(t0) */
+        0x6d0b0003, /* ldr t3, 3(t0) */
+        0x00000000  /* nop */
+    };
+    struct cpu_state init = {0};
+    struct cpu_state expect = {0};
+    expect.regs[8]  = 0x2000;                                /* t0 */
+    expect.regs[9]  = 0x1122334455667788ULL;                 /* t1 */
+    expect.regs[10] = 0x0011223344556677ULL;                 /* t2 */
+    expect.regs[11] = 0x000000001122334455ULL;               /* t3 */
+    run_asm_test("ldl_ldr", block, sizeof(block)/4, &init, &expect);
+}
+END_TEST
+
 START_TEST(test_complex_control_flow)
 {
     /* Loop with branches, delay slots and a dynamic jump back inside the block */
@@ -747,6 +870,9 @@ Suite *create_suite(void)
     tcase_add_test(tc_core, test_cp0_moves);
     tcase_add_test(tc_core, test_cp1_moves);
     tcase_add_test(tc_core, test_cp1_arith);
+    tcase_add_test(tc_core, test_shift_64);
+    tcase_add_test(tc_core, test_muldiv_64);
+    tcase_add_test(tc_core, test_ldl_ldr);
     tcase_add_test(tc_core, test_complex_control_flow);
     suite_add_tcase(s, tc_core);
     return s;
