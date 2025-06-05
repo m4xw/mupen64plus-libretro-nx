@@ -26,6 +26,10 @@ Memory access instructions call the core memory subsystem via imported callbacks
 | BLTZAL |
 | BNE |
 | BNEL |
+| BC1F |
+| BC1FL |
+| BC1T |
+| BC1TL |
 | BREAK |
 | CACHE |
 | DADD |
