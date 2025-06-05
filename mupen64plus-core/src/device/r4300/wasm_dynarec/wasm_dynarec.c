@@ -5,6 +5,9 @@
 #include "device/r4300/new_dynarec/new_dynarec.h"
 #include "device/r4300/fpu.h"
 #include "wasm3.h"
+#ifdef __EMSCRIPTEN__
+# include <emscripten/emscripten.h>
+#endif
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,6 +36,7 @@ static size_t g_blocks_count = 0;
 
 static struct r4300_core *g_current_cpu = NULL;
 
+#ifndef __EMSCRIPTEN__
 m3ApiRawFunction(wasm_dynarec_dispatch_import)
 {
     m3ApiGetArg(uint32_t, base);
@@ -90,6 +94,53 @@ m3ApiRawFunction(wasm_dynarec_write_dword)
         r4300_write_aligned_dword(g_current_cpu, addr, value, mask);
     m3ApiSuccess();
 }
+#else
+EMSCRIPTEN_KEEPALIVE
+void wasm_dynarec_dispatch_import(uint32_t base, uint32_t addr)
+{
+    (void)base;
+    if (g_current_cpu)
+        wasm_dynarec_dispatch(g_current_cpu, addr);
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint32_t wasm_dynarec_read_word(uint32_t base, uint32_t addr)
+{
+    (void)base;
+    uint32_t value = 0;
+    if (g_current_cpu)
+        r4300_read_aligned_word(g_current_cpu, addr, &value);
+    return value;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint64_t wasm_dynarec_read_dword(uint32_t base, uint32_t addr)
+{
+    (void)base;
+    uint64_t value = 0;
+    if (g_current_cpu)
+        r4300_read_aligned_dword(g_current_cpu, addr, &value);
+    return value;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void wasm_dynarec_write_word(uint32_t base, uint32_t addr,
+                             uint32_t value, uint32_t mask)
+{
+    (void)base;
+    if (g_current_cpu)
+        r4300_write_aligned_word(g_current_cpu, addr, value, mask);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void wasm_dynarec_write_dword(uint32_t base, uint32_t addr,
+                              uint64_t value, uint64_t mask)
+{
+    (void)base;
+    if (g_current_cpu)
+        r4300_write_aligned_dword(g_current_cpu, addr, value, mask);
+}
+#endif
 
 static struct wasm_dynarec_block *get_block(uint32_t address)
 {
@@ -98,6 +149,66 @@ static struct wasm_dynarec_block *get_block(uint32_t address)
             return &g_blocks[i];
     return NULL;
 }
+
+#ifdef __EMSCRIPTEN__
+EM_JS(void, wasm_dynarec_exec_js,
+      (uintptr_t state_ptr, uintptr_t cp1_ptr, const char *wat,
+       size_t state_size, size_t cp1_simple_off, size_t cp1_double_off),
+{
+  const watStr = UTF8ToString(wat);
+  let wasmBytes;
+  if (Module['wabt']) {
+    const mod = Module['wabt'].parseWat('block.wat', watStr);
+    wasmBytes = mod.toBinary({}).buffer;
+  } else if (typeof Binaryen !== 'undefined') {
+    const mod = Binaryen.parseText(watStr);
+    wasmBytes = Binaryen.emitBinary(mod);
+  } else {
+    console.error('No WAT compiler available');
+    return;
+  }
+
+  const imports = {
+    env: {
+      wasm_dynarec_dispatch: Module['_wasm_dynarec_dispatch_import'],
+      mem_read32: Module['_wasm_dynarec_read_word'],
+      mem_read64: Module['_wasm_dynarec_read_dword'],
+      mem_write32: Module['_wasm_dynarec_write_word'],
+      mem_write64: Module['_wasm_dynarec_write_dword']
+    }
+  };
+
+  const instance = new WebAssembly.Instance(new WebAssembly.Module(wasmBytes), imports);
+  const memory = instance.exports.memory;
+  const entry = instance.exports.entry;
+
+  const memU8 = new Uint8Array(memory.buffer);
+  const memDV = new DataView(memory.buffer);
+  const heapU8 = HEAPU8;
+  const heapDV = new DataView(HEAPU8.buffer);
+
+  for (let i = 0; i < state_size; i++)
+    memU8[i] = heapU8[state_ptr + i];
+
+  const CP1_BASE = 0x8000;
+  for (let i = 0; i < 32; i++) {
+    const val = heapDV.getBigUint64(cp1_ptr + i * 8, true);
+    memDV.setBigUint64(CP1_BASE + i * 8, val, true);
+    memDV.setBigUint64(cp1_simple_off + i * 8, BigInt(CP1_BASE + i * 8), true);
+    memDV.setBigUint64(cp1_double_off + i * 8, BigInt(CP1_BASE + i * 8), true);
+  }
+
+  entry(0);
+
+  for (let i = 0; i < state_size; i++)
+    heapU8[state_ptr + i] = memU8[i];
+
+  for (let i = 0; i < 32; i++) {
+    const val = memDV.getBigUint64(CP1_BASE + i * 8, true);
+    heapDV.setBigUint64(cp1_ptr + i * 8, val, true);
+  }
+});
+#endif
 
 static void append(char **buf, size_t *size, const char *fmt, ...)
 {
@@ -2721,7 +2832,14 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
 
     DebugMessage(M64MSG_INFO, "Executing WebAssembly block %08x", address);
     DebugMessage(M64MSG_VERBOSE, "\n%s", block->wat);
-
+#ifdef __EMSCRIPTEN__
+    wasm_dynarec_exec_js((uintptr_t)&r4300->new_dynarec_hot_state,
+                         (uintptr_t)&r4300->cp1.regs[0].dword,
+                         block->wat,
+                         sizeof(struct new_dynarec_hot_state),
+                         offsetof(struct new_dynarec_hot_state, cp1_regs_simple),
+                         offsetof(struct new_dynarec_hot_state, cp1_regs_double));
+#else
     char wat_path[64];
     char wasm_path[64];
     snprintf(wat_path, sizeof(wat_path), "/tmp/block_%08x.wat", address);
@@ -2794,6 +2912,7 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
     free(wasm);
     unlink(wasm_path);
     unlink(wat_path);
+#endif
 }
 
 void wasm_dynarec_dump(uint32_t address)
