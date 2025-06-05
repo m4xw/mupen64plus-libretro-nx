@@ -25,6 +25,7 @@
 #include "instr_counters.h"
 #endif
 #include "new_dynarec/new_dynarec.h"
+#include "wasm_dynarec/wasm_dynarec.h"
 #include "pure_interp.h"
 #include "recomp.h"
 
@@ -417,9 +418,13 @@ void invalidate_r4300_cached_code(struct r4300_core* r4300, uint32_t address, si
     if (r4300->emumode != EMUMODE_PURE_INTERPRETER)
     {
 #ifdef NEW_DYNAREC
-        if (r4300->emumode == EMUMODE_DYNAREC || r4300->emumode == EMUMODE_WASM_DYNAREC)
+        if (r4300->emumode == EMUMODE_DYNAREC)
         {
             invalidate_cached_code_new_dynarec(r4300, address, size);
+        }
+        else if (r4300->emumode == EMUMODE_WASM_DYNAREC)
+        {
+            invalidate_cached_code_wasm_dynarec(r4300, address, size);
         }
         else
 #endif

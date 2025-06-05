@@ -31,6 +31,7 @@ struct wasm_dynarec_block
     char *wat;
     size_t wat_size;
     uint32_t mem_pages;
+    size_t iw_count;
 };
 
 static struct wasm_dynarec_block *g_blocks = NULL;
@@ -2478,6 +2479,34 @@ void wasm_dynarec_init(struct r4300_core *r4300)
     DebugMessage(M64MSG_INFO, "Initializing experimental WebAssembly dynarec");
 }
 
+void invalidate_cached_code_wasm_dynarec(struct r4300_core *r4300,
+                                         uint32_t address, size_t size)
+{
+    (void)r4300;
+
+    if (g_blocks_count == 0)
+        return;
+
+    if (size == 0) {
+        for (size_t i = 0; i < g_blocks_count; ++i) {
+            free(g_blocks[i].wat);
+            g_blocks[i].wat = NULL;
+            g_blocks[i].wat_size = 0;
+        }
+        return;
+    }
+
+    uint32_t end = address + size - 1;
+    for (size_t i = 0; i < g_blocks_count; ++i) {
+        uint32_t addr = g_blocks[i].address;
+        if (addr >= address && addr <= end) {
+            free(g_blocks[i].wat);
+            g_blocks[i].wat = NULL;
+            g_blocks[i].wat_size = 0;
+        }
+    }
+}
+
 void wasm_dynarec_cleanup(void)
 {
     for (size_t i = 0; i < g_blocks_count; ++i)
@@ -2501,6 +2530,7 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
         free(block->wat);
         block->wat = NULL;
         block->wat_size = 0;
+        block->iw_count = count;
     } else {
         g_blocks = realloc(g_blocks, sizeof(*g_blocks) * (g_blocks_count + 1));
         block = &g_blocks[g_blocks_count++];
@@ -2508,6 +2538,7 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
         block->wat = NULL;
         block->wat_size = 0;
         block->mem_pages = 0;
+        block->iw_count = count;
     }
 
     size_t mem_bytes = sizeof(struct new_dynarec_hot_state) + 0x8000 + 0x1000;
@@ -2847,8 +2878,18 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
 {
     struct wasm_dynarec_block *block = get_block(address);
     if (!block || !block->wat) {
-        DebugMessage(M64MSG_WARNING, "No WebAssembly block for %08x; using interpreter", address);
-        return;
+        const uint32_t *iw = fast_mem_access(r4300, address);
+        if (!iw) {
+            DebugMessage(M64MSG_WARNING, "No WebAssembly block for %08x; using interpreter", address);
+            return;
+        }
+        size_t cnt = block ? block->iw_count : 4;
+        wasm_dynarec_recompile_block(r4300, iw, cnt, address);
+        block = get_block(address);
+        if (!block || !block->wat) {
+            DebugMessage(M64MSG_WARNING, "No WebAssembly block for %08x; using interpreter", address);
+            return;
+        }
     }
 
     uint32_t start_pc = address;

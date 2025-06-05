@@ -40,7 +40,16 @@
 
 /* minimal stubs to satisfy the dynarec build */
 void DebugMessage(int level, const char *fmt, ...) {}
-uint32_t *fast_mem_access(struct r4300_core *r4300, uint32_t address) { return NULL; }
+
+uint32_t *fast_mem_access(struct r4300_core *r4300, uint32_t address)
+{
+    if ((address & UINT32_C(0xc0000000)) != UINT32_C(0x80000000))
+        return NULL;
+
+    address &= UINT32_C(0x1ffffffc);
+    const struct mem_handler *h = mem_get_handler(r4300->mem, address);
+    return (uint32_t*)((uint8_t*)h->opaque + address);
+}
 
 int r4300_read_aligned_word(struct r4300_core *r4300, uint32_t address, uint32_t *value)
 {
@@ -62,6 +71,7 @@ int r4300_read_aligned_dword(struct r4300_core *r4300, uint32_t address, uint64_
 
 int r4300_write_aligned_word(struct r4300_core *r4300, uint32_t address, uint32_t value, uint32_t mask)
 {
+    invalidate_cached_code_wasm_dynarec(r4300, address, 4);
     address &= UINT32_C(0x1ffffffc);
     mem_write32(mem_get_handler(r4300->mem, address), address, value, mask);
     return 1;
@@ -69,6 +79,7 @@ int r4300_write_aligned_word(struct r4300_core *r4300, uint32_t address, uint32_
 
 int r4300_write_aligned_dword(struct r4300_core *r4300, uint32_t address, uint64_t value, uint64_t mask)
 {
+    invalidate_cached_code_wasm_dynarec(r4300, address, 8);
     address &= UINT32_C(0x1ffffffc);
     const struct mem_handler *h = mem_get_handler(r4300->mem, address);
     mem_write32(h, address, (uint32_t)(value >> 32), (uint32_t)(mask >> 32));
@@ -1138,6 +1149,57 @@ START_TEST(test_fp_trunc)
 }
 END_TEST
 
+START_TEST(test_self_modifying)
+{
+    struct r4300_core *cpu = calloc(1, sizeof(*cpu));
+    ck_assert_ptr_nonnull(cpu);
+
+    struct memory mem = {0};
+    uint8_t *rdram_buf = calloc(0x10000, 1);
+    ck_assert_ptr_nonnull(rdram_buf);
+
+    struct mem_mapping mapping = { 0, 0x10000 - 1, 0,
+                                  { rdram_buf, test_read32, test_write32 } };
+    struct mem_handler dbg = { rdram_buf, test_read32, test_write32 };
+    init_memory(&mem, &mapping, 1, NULL, &dbg);
+    cpu->mem = &mem;
+
+    uint32_t *code = (uint32_t*)rdram_buf;
+    /*
+     * addi  t0, zero, 1        ; t0 = 1
+     * lui   t1, 0x8000         ; load base address of this block
+     * lui   t2, 0x2008         ; high bits of instruction "addi t0, zero, 2"
+     * ori   t2, t2, 2          ; complete opcode 0x20080002
+     * sw    t2, 0(t1)          ; patch first instruction
+     * jr    ra
+     * nop
+     */
+    code[0] = 0x20080001; /* addi t0, zero, 1 */
+    code[1] = 0x3c098000; /* lui t1, 0x8000 */
+    code[2] = 0x3c0a2008; /* lui t2, 0x2008 */
+    code[3] = 0x354a0002; /* ori t2, t2, 2 */
+    code[4] = 0xad2a0000; /* sw t2, 0(t1) */
+    code[5] = 0x03e00008; /* jr ra */
+    code[6] = 0x00000000; /* nop */
+
+    wasm_dynarec_init(cpu);
+    wasm_dynarec_recompile_block(cpu, code, 7, 0x80000000);
+
+    memset(&cpu->new_dynarec_hot_state, 0, sizeof(cpu->new_dynarec_hot_state));
+    wasm_dynarec_exec(cpu, 0x80000000);
+    ck_assert_msg(cpu->new_dynarec_hot_state.regs[8] == 1, "first exec");
+
+    cpu->new_dynarec_hot_state.regs[8] = 0;
+    cpu->new_dynarec_hot_state.pcaddr = 0x80000000;
+    wasm_dynarec_exec(cpu, 0x80000000);
+    ck_assert_msg(cpu->new_dynarec_hot_state.regs[8] == 2, "second exec");
+
+    wasm_dynarec_cleanup();
+    free(cpu);
+    free(rdram_buf);
+}
+END_TEST
+
 Suite *create_suite(void)
 {
     Suite *s = suite_create("WebAssembly Dynarec");
@@ -1161,6 +1223,7 @@ Suite *create_suite(void)
     tcase_add_test(tc_core, test_fp_floor);
     tcase_add_test(tc_core, test_fp_round);
     tcase_add_test(tc_core, test_fp_trunc);
+    tcase_add_test(tc_core, test_self_modifying);
     tcase_add_test(tc_core, test_complex_control_flow);
     suite_add_tcase(s, tc_core);
     return s;

@@ -8,6 +8,7 @@ struct r4300_core;
 
 void wasm_dynarec_init(struct r4300_core *r4300);
 void wasm_dynarec_cleanup(void);
+void invalidate_cached_code_wasm_dynarec(struct r4300_core *r4300, uint32_t address, size_t size);
 void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, size_t count, uint32_t address);
 void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address);
 
