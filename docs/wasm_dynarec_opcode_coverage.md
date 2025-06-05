@@ -3,6 +3,7 @@
 This document tracks which MIPS instructions are currently handled by the experimental WebAssembly dynamic recompiler. Instruction names correspond to those used in [`mips_instructions.def`](../mupen64plus-core/src/device/r4300/mips_instructions.def). Some opcodes such as `ADDIU` and `DADDIU` are implemented via the `ADDI` and `DADDI` cases.
 
 Memory access instructions call the core memory subsystem via imported callbacks rather than using raw WebAssembly loads and stores.
+ When running under Emscripten these callbacks are exported with `EMSCRIPTEN_KEEPALIVE` so JavaScript can invoke them.
 
 ## Implemented opcodes
 
