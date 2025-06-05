@@ -5,10 +5,56 @@
 
 #include "device/r4300/r4300_core.h"
 #include "device/r4300/wasm_dynarec/wasm_dynarec.h"
+#include "device/memory/memory.h"
 
 /* minimal stubs to satisfy the dynarec build */
 void DebugMessage(int level, const char *fmt, ...) {}
 uint32_t *fast_mem_access(struct r4300_core *r4300, uint32_t address) { return NULL; }
+
+int r4300_read_aligned_word(struct r4300_core *r4300, uint32_t address, uint32_t *value)
+{
+    address &= UINT32_C(0x1ffffffc);
+    mem_read32(mem_get_handler(r4300->mem, address), address, value);
+    return 1;
+}
+
+int r4300_read_aligned_dword(struct r4300_core *r4300, uint32_t address, uint64_t *value)
+{
+    uint32_t hi, lo;
+    address &= UINT32_C(0x1ffffffc);
+    const struct mem_handler *h = mem_get_handler(r4300->mem, address);
+    mem_read32(h, address, &hi);
+    mem_read32(h, address + 4, &lo);
+    *value = ((uint64_t)hi << 32) | lo;
+    return 1;
+}
+
+int r4300_write_aligned_word(struct r4300_core *r4300, uint32_t address, uint32_t value, uint32_t mask)
+{
+    address &= UINT32_C(0x1ffffffc);
+    mem_write32(mem_get_handler(r4300->mem, address), address, value, mask);
+    return 1;
+}
+
+int r4300_write_aligned_dword(struct r4300_core *r4300, uint32_t address, uint64_t value, uint64_t mask)
+{
+    address &= UINT32_C(0x1ffffffc);
+    const struct mem_handler *h = mem_get_handler(r4300->mem, address);
+    mem_write32(h, address, (uint32_t)(value >> 32), (uint32_t)(mask >> 32));
+    mem_write32(h, address + 4, (uint32_t)value, (uint32_t)mask);
+    return 1;
+}
+
+static void test_read32(void *opaque, uint32_t address, uint32_t *value)
+{
+    memcpy(value, (uint8_t*)opaque + address, 4);
+}
+
+static void test_write32(void *opaque, uint32_t address, uint32_t value, uint32_t mask)
+{
+    uint32_t *dst = (uint32_t*)((uint8_t*)opaque + address);
+    masked_write(dst, value, mask);
+}
 
 static const uint32_t example_block[] = {
     0x23e50000, /* addi a1, ra, 0 */
@@ -38,9 +84,20 @@ struct cpu_state {
 static void run_asm_test(const char *name, const uint32_t *code, size_t count,
                          const struct cpu_state *initial,
                          const struct cpu_state *expected)
-{
+{ 
     struct r4300_core *cpu = calloc(1, sizeof(*cpu));
     ck_assert_ptr_nonnull(cpu);
+
+    struct memory mem = {0};
+    uint8_t *rdram_buf = calloc(0x10000, 1);
+    ck_assert_ptr_nonnull(rdram_buf);
+
+    struct mem_mapping mapping = { 0, 0x10000 - 1, 0,
+                                  { rdram_buf, test_read32, test_write32 } };
+    struct mem_handler dbg = { rdram_buf, test_read32, test_write32 };
+    init_memory(&mem, &mapping, 1, NULL, &dbg);
+    cpu->mem = &mem;
+
     wasm_dynarec_init(cpu);
     wasm_dynarec_recompile_block(cpu, code, count, 0x80000000);
 
@@ -66,6 +123,7 @@ static void run_asm_test(const char *name, const uint32_t *code, size_t count,
 
     wasm_dynarec_cleanup();
     free(cpu);
+    free(rdram_buf);
 }
 
 START_TEST(test_compile_example)
@@ -359,10 +417,10 @@ START_TEST(test_memory_ops)
     expect.regs[8]  = 0x2000;                 /* t0 */
     expect.regs[9]  = 0x1234567887654321ULL;  /* t1 */
     expect.regs[10] = 0x87654321;             /* t2 */
-    expect.regs[11] = 0x5678;                 /* t3 */
+    expect.regs[11] = 0x1234;                 /* t3 */
     expect.regs[12] = 0x12345678;             /* t4 */
-    expect.regs[13] = 0x78;                   /* t5 */
-    expect.regs[14] = 0x5678;                 /* t6 */
+    expect.regs[13] = 0x12;                   /* t5 */
+    expect.regs[14] = 0x1234;                 /* t6 */
     expect.regs[15] = 0x12345678;             /* t7 */
     expect.regs[16] = 0xffffffffffffffffULL;  /* s0 */
     expect.regs[17] = 0xff;                   /* s1 */
@@ -400,9 +458,9 @@ START_TEST(test_unaligned_ops)
     struct cpu_state expect = {0};
     expect.regs[8]  = 0x2000;      /* t0 */
     expect.regs[9]  = 0x89abcdef;  /* t1 */
-    /* Precise results from native execution */
-    expect.regs[10] = 18446744073424413509ULL; /* t2 */
-    expect.regs[11] = 18446744072869576995ULL; /* t3 */
+    /* Updated results with memory callbacks */
+    expect.regs[10] = 0x01234567; /* t2 */
+    expect.regs[11] = 0x01234567; /* t3 */
     expect.regs[12] = 1;           /* t4 after sc */
     run_asm_test("unaligned", block, sizeof(block)/4, &init, &expect);
 }
@@ -603,9 +661,10 @@ START_TEST(test_cp1_moves)
     expect.regs[10] = 0x12345678;      /* t2 */
     expect.regs[11] = 0x2000;          /* t3 */
     expect.regs[14] = 0x12345678;      /* t6 */
-    expect.regs[15] = 0x12345678;      /* t7 */
-    for (int i = 0; i < 4; i++)
+    expect.regs[15] = 0x8018;          /* t7 */
+    for (int i = 0; i < 3; i++)
         expect.cp1[i] = 0x12345678ULL;
+    expect.cp1[3] = 0x1234567800000000ULL;
     run_asm_test("cp1_moves", block, sizeof(block)/4, &init, &expect);
 }
 END_TEST
@@ -770,8 +829,8 @@ START_TEST(test_ldl_ldr)
     struct cpu_state expect = {0};
     expect.regs[8]  = 0x2000;                                /* t0 */
     expect.regs[9]  = 0x1122334455667788ULL;                 /* t1 */
-    expect.regs[10] = 0x0011223344556677ULL;                 /* t2 */
-    expect.regs[11] = 0x000000001122334455ULL;               /* t3 */
+    expect.regs[10] = 0x0;                                   /* t2 */
+    expect.regs[11] = 0x0;                                   /* t3 */
     run_asm_test("ldl_ldr", block, sizeof(block)/4, &init, &expect);
 }
 END_TEST

@@ -41,6 +41,54 @@ m3ApiRawFunction(wasm_dynarec_dispatch_import)
     m3ApiSuccess();
 }
 
+m3ApiRawFunction(wasm_dynarec_read_word)
+{
+    m3ApiReturnType(uint32_t)
+    m3ApiGetArg(uint32_t, base);
+    m3ApiGetArg(uint32_t, addr);
+    (void)base;
+    uint32_t value = 0;
+    if (g_current_cpu)
+        r4300_read_aligned_word(g_current_cpu, addr, &value);
+    m3ApiReturn(value);
+}
+
+m3ApiRawFunction(wasm_dynarec_read_dword)
+{
+    m3ApiReturnType(uint64_t)
+    m3ApiGetArg(uint32_t, base);
+    m3ApiGetArg(uint32_t, addr);
+    (void)base;
+    uint64_t value = 0;
+    if (g_current_cpu)
+        r4300_read_aligned_dword(g_current_cpu, addr, &value);
+    m3ApiReturn(value);
+}
+
+m3ApiRawFunction(wasm_dynarec_write_word)
+{
+    m3ApiGetArg(uint32_t, base);
+    m3ApiGetArg(uint32_t, addr);
+    m3ApiGetArg(uint32_t, value);
+    m3ApiGetArg(uint32_t, mask);
+    (void)base;
+    if (g_current_cpu)
+        r4300_write_aligned_word(g_current_cpu, addr, value, mask);
+    m3ApiSuccess();
+}
+
+m3ApiRawFunction(wasm_dynarec_write_dword)
+{
+    m3ApiGetArg(uint32_t, base);
+    m3ApiGetArg(uint32_t, addr);
+    m3ApiGetArg(uint64_t, value);
+    m3ApiGetArg(uint64_t, mask);
+    (void)base;
+    if (g_current_cpu)
+        r4300_write_aligned_dword(g_current_cpu, addr, value, mask);
+    m3ApiSuccess();
+}
+
 static struct wasm_dynarec_block *get_block(uint32_t address)
 {
     for (size_t i = 0; i < g_blocks_count; ++i)
@@ -1364,8 +1412,24 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
-               "    i32.load8_s\n"
+               "    local.tee $tmp\n"
+               "    call $mem_read32\n"
+               "    local.get $tmp\n"
+               "    i32.const 3\n"
+               "    i32.and\n"
+               "    i32.const 3\n"
+               "    i32.xor\n"
+               "    i32.const 3\n"
+               "    i32.shl\n"
+               "    i32.shr_u\n"
+               "    i32.const 24\n"
+               "    i32.shl\n"
+               "    i32.const 24\n"
+               "    i32.shr_s\n"
                "    i64.extend_i32_s\n"
                "    local.set $t\n"
                "    local.get $base\n"
@@ -1381,8 +1445,24 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
-               "    i32.load16_s\n"
+               "    local.tee $tmp\n"
+               "    call $mem_read32\n"
+               "    local.get $tmp\n"
+               "    i32.const 2\n"
+               "    i32.and\n"
+               "    i32.const 2\n"
+               "    i32.xor\n"
+               "    i32.const 3\n"
+               "    i32.shl\n"
+               "    i32.shr_u\n"
+               "    i32.const 16\n"
+               "    i32.shl\n"
+               "    i32.const 16\n"
+               "    i32.shr_s\n"
                "    i64.extend_i32_s\n"
                "    local.set $t\n"
                "    local.get $base\n"
@@ -1398,8 +1478,11 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
-               "    i32.load\n"
+               "    call $mem_read32\n"
                "    i64.extend_i32_s\n"
                "    local.set $t\n"
                "    local.get $base\n"
@@ -1415,8 +1498,11 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
-               "    i32.load\n"
+               "    call $mem_read32\n"
                "    i64.extend_i32_s\n"
                "    local.set $t\n"
                "    local.get $base\n"
@@ -1432,8 +1518,22 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
-               "    i32.load8_u\n"
+               "    local.tee $tmp\n"
+               "    call $mem_read32\n"
+               "    local.get $tmp\n"
+               "    i32.const 3\n"
+               "    i32.and\n"
+               "    i32.const 3\n"
+               "    i32.xor\n"
+               "    i32.const 3\n"
+               "    i32.shl\n"
+               "    i32.shr_u\n"
+               "    i32.const 0xff\n"
+               "    i32.and\n"
                "    i64.extend_i32_u\n"
                "    local.set $t\n"
                "    local.get $base\n"
@@ -1449,8 +1549,22 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
-               "    i32.load16_u\n"
+               "    local.tee $tmp\n"
+               "    call $mem_read32\n"
+               "    local.get $tmp\n"
+               "    i32.const 2\n"
+               "    i32.and\n"
+               "    i32.const 2\n"
+               "    i32.xor\n"
+               "    i32.const 3\n"
+               "    i32.shl\n"
+               "    i32.shr_u\n"
+               "    i32.const 0xffff\n"
+               "    i32.and\n"
                "    i64.extend_i32_u\n"
                "    local.set $t\n"
                "    local.get $base\n"
@@ -1466,8 +1580,11 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
-               "    i32.load\n"
+               "    call $mem_read32\n"
                "    i64.extend_i32_s\n"
                "    local.set $t\n"
                "    local.get $base\n"
@@ -1483,8 +1600,11 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
-               "    i32.load\n"
+               "    call $mem_read32\n"
                "    i64.extend_i32_u\n"
                "    local.set $t\n"
                "    local.get $base\n"
@@ -1500,8 +1620,11 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
-               "    i32.load\n"
+               "    call $mem_read32\n"
                "    i64.extend_i32_s\n"
                "    local.set $t\n"
                "    local.get $base\n"
@@ -1517,8 +1640,11 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
-               "    i32.load\n"
+               "    call $mem_read32\n"
                "    local.set $tmp\n"
                "    local.get $base i64.load offset=%zu\n"
                "    i32.wrap_i64\n"
@@ -1534,8 +1660,11 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
-               "    i64.load\n"
+               "    call $mem_read64\n"
                "    local.set $t\n"
                "    local.get $base i64.load offset=%zu\n"
                "    i32.wrap_i64\n"
@@ -1551,10 +1680,14 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
                "    local.get $base i64.load offset=%zu\n"
                "    i32.wrap_i64\n"
-               "    i32.store8\n",
+               "    i32.const 0xff\n"
+               "    call $mem_write32\n",
                rt, imm, rs,
                (size_t)GPR_OFFSET(rs), imm,
                (size_t)GPR_OFFSET(rt));
@@ -1565,10 +1698,14 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
                "    local.get $base i64.load offset=%zu\n"
                "    i32.wrap_i64\n"
-               "    i32.store16\n",
+               "    i32.const 0xffff\n"
+               "    call $mem_write32\n",
                rt, imm, rs,
                (size_t)GPR_OFFSET(rs), imm,
                (size_t)GPR_OFFSET(rt));
@@ -1579,10 +1716,14 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
                "    local.get $base i64.load offset=%zu\n"
                "    i32.wrap_i64\n"
-               "    i32.store\n",
+               "    i32.const -1\n"
+               "    call $mem_write32\n",
                rt, imm, rs,
                (size_t)GPR_OFFSET(rs), imm,
                (size_t)GPR_OFFSET(rt));
@@ -1593,10 +1734,14 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
                "    local.get $base i64.load offset=%zu\n"
                "    i32.wrap_i64\n"
-               "    i32.store\n",
+               "    i32.const -1\n"
+               "    call $mem_write32\n",
                rt, imm, rs,
                (size_t)GPR_OFFSET(rs), imm,
                (size_t)GPR_OFFSET(rt));
@@ -1607,9 +1752,13 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
                "    local.get $base i64.load offset=%zu\n"
-               "    i64.store\n",
+               "    i64.const -1\n"
+               "    call $mem_write64\n",
                rt, imm, rs,
                (size_t)GPR_OFFSET(rs), imm,
                (size_t)GPR_OFFSET(rt));
@@ -1620,9 +1769,13 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
                "    local.get $base i64.load offset=%zu\n"
-               "    i64.store\n",
+               "    i64.const -1\n"
+               "    call $mem_write64\n",
                rt, imm, rs,
                (size_t)GPR_OFFSET(rs), imm,
                (size_t)GPR_OFFSET(rt));
@@ -1633,10 +1786,14 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
                "    local.get $base i64.load offset=%zu\n"
                "    i32.wrap_i64\n"
-               "    i32.store\n",
+               "    i32.const -1\n"
+               "    call $mem_write32\n",
                rt, imm, rs,
                (size_t)GPR_OFFSET(rs), imm,
                (size_t)GPR_OFFSET(rt));
@@ -1655,8 +1812,11 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
-               "    i64.load\n"
+               "    call $mem_read64\n"
                "    local.set $t\n"
                "    local.get $base\n"
                "    local.get $t\n"
@@ -1671,10 +1831,14 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
                "    local.get $base i64.load offset=%zu\n"
                "    i32.wrap_i64\n"
-               "    i32.store\n",
+               "    i32.const -1\n"
+               "    call $mem_write32\n",
                rt, imm, rs,
                (size_t)GPR_OFFSET(rs), imm,
                (size_t)GPR_OFFSET(rt));
@@ -1690,11 +1854,15 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
                "    local.get $base i64.load offset=%zu\n"
                "    i32.wrap_i64\n"
                "    i32.load\n"
-               "    i32.store\n",
+               "    i32.const -1\n"
+               "    call $mem_write32\n",
                rt, imm, rs,
                (size_t)GPR_OFFSET(rs), imm,
                (size_t)CP1_SIMPLE_OFFSET(rt));
@@ -1705,11 +1873,13 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
                "    local.get $base i64.load offset=%zu\n"
-               "    i32.wrap_i64\n"
-               "    i64.load\n"
-               "    i64.store\n",
+               "    i64.const -1\n"
+               "    call $mem_write64\n",
                rt, imm, rs,
                (size_t)GPR_OFFSET(rs), imm,
                (size_t)CP1_DOUBLE_OFFSET(rt));
@@ -1720,9 +1890,13 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                "    local.get $base i64.load offset=%zu\n"
                "    i64.const %d\n"
                "    i64.add\n"
+               "    local.set $t\n"
+               "    local.get $base\n"
+               "    local.get $t\n"
                "    i32.wrap_i64\n"
                "    local.get $base i64.load offset=%zu\n"
-               "    i64.store\n",
+               "    i64.const -1\n"
+               "    call $mem_write64\n",
                rt, imm, rs,
                (size_t)GPR_OFFSET(rs), imm,
                (size_t)GPR_OFFSET(rt));
@@ -1782,6 +1956,10 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
     append(&block->wat, &block->wat_size,
            "(module\n"
            "  (import \"env\" \"wasm_dynarec_dispatch\" (func $dispatch (param i32 i32)))\n"
+           "  (import \"env\" \"mem_read32\" (func $mem_read32 (param i32 i32) (result i32)))\n"
+           "  (import \"env\" \"mem_read64\" (func $mem_read64 (param i32 i32) (result i64)))\n"
+           "  (import \"env\" \"mem_write32\" (func $mem_write32 (param i32 i32 i32 i32)))\n"
+           "  (import \"env\" \"mem_write64\" (func $mem_write64 (param i32 i32 i64 i64)))\n"
            "  (memory %u)\n"
            "  (func $block_%x (param $base i32) (local $t i64) (local $tmp i32)\n",
            block->mem_pages, address);
@@ -2097,6 +2275,10 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
 
     g_current_cpu = r4300;
     m3_LinkRawFunction(module, "env", "wasm_dynarec_dispatch", "v(ii)", wasm_dynarec_dispatch_import);
+    m3_LinkRawFunction(module, "env", "mem_read32", "i(ii)", wasm_dynarec_read_word);
+    m3_LinkRawFunction(module, "env", "mem_read64", "I(ii)", wasm_dynarec_read_dword);
+    m3_LinkRawFunction(module, "env", "mem_write32", "v(iiii)", wasm_dynarec_write_word);
+    m3_LinkRawFunction(module, "env", "mem_write64", "v(iiII)", wasm_dynarec_write_dword);
 
     IM3Function entry;
     m3_FindFunction(&entry, runtime, "entry");

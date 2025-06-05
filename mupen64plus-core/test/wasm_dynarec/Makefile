@@ -12,5 +12,5 @@ clean:
 
 WASM3_SRCS = $(wildcard $(WASM3_DIR)/*.c)
 
-test_wasm_dynarec: test_wasm_dynarec.c ../../src/device/r4300/wasm_dynarec/wasm_dynarec.c $(WASM3_SRCS)
+test_wasm_dynarec: test_wasm_dynarec.c ../../src/device/r4300/wasm_dynarec/wasm_dynarec.c ../../src/device/memory/memory.c $(WASM3_SRCS)
 	$(CC) $(CFLAGS) -Werror -o $@ $^ $(LDFLAGS)
