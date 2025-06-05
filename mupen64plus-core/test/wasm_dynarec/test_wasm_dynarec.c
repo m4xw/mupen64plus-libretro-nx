@@ -6,6 +6,7 @@
 #include "device/r4300/r4300_core.h"
 #include "device/r4300/wasm_dynarec/wasm_dynarec.h"
 #include "device/memory/memory.h"
+#include "device/r4300/fpu.h"
 
 #define ENCODE_COP1(fmt, ft, fs, fd, func) \
     ((0x11u << 26) | ((fmt) << 21) | ((ft) << 16) | ((fs) << 11) | ((fd) << 6) | (func))
@@ -615,6 +616,100 @@ START_TEST(test_branch_likely)
     expect_state.hot.regs[9]  = 5;                      /* t1 */
     expect_state.hot.regs[31] = 0xffffffff8000000cULL;  /* ra */
     run_asm_test("bgezal_link", bgezal_block, sizeof(bgezal_block)/4, &init_state, &expect_state);
+
+    /* BLTZL - branch taken executes delay slot */
+    const uint32_t bltzl_taken_block[] = {
+        0x2008ffff, /* addi t0, zero, -1 */
+        0x05020002, /* bltzl t0, 2 */
+        0x20090005, /* addi t1, zero, 5 (delay slot) */
+        0x20090006, /* addi t1, zero, 6 (skipped) */
+        0x20090007, /* addi t1, zero, 7 (target) */
+        0x00000000  /* nop */
+    };
+    memset(&init_state, 0, sizeof(init_state));
+    memset(&expect_state, 0, sizeof(expect_state));
+    expect_state.hot.regs[8] = (uint64_t)-1; /* t0 */
+    expect_state.hot.regs[9] = 7;            /* t1 */
+    run_asm_test("bltzl_taken", bltzl_taken_block,
+                 sizeof(bltzl_taken_block)/4, &init_state, &expect_state);
+
+    /* BGEZALL - branch taken updates link register and executes delay slot */
+    const uint32_t bgezall_block[] = {
+        0x20080000, /* addi t0, zero, 0 */
+        0x05130002, /* bgezall t0, 2 */
+        0x20090005, /* addi t1, zero, 5 (delay slot) */
+        0x20090006, /* addi t1, zero, 6 (skipped) */
+        0x20090007, /* addi t1, zero, 7 (target) */
+        0x00000000  /* nop */
+    };
+    memset(&init_state, 0, sizeof(init_state));
+    memset(&expect_state, 0, sizeof(expect_state));
+    expect_state.hot.regs[8]  = 0;                       /* t0 */
+    expect_state.hot.regs[9]  = 7;                       /* t1 */
+    expect_state.hot.regs[31] = 0xffffffff8000000cULL;   /* ra */
+    run_asm_test("bgezall_link", bgezall_block, sizeof(bgezall_block)/4,
+                 &init_state, &expect_state);
+
+    /* BC1F - branch not taken executes delay slot */
+    const uint32_t bc1f_block[] = {
+        0x45000002, /* bc1f 2 */
+        0x20080005, /* addi t0, zero, 5 (delay slot) */
+        0x00000000, /* nop */
+        0x00000000  /* nop target */
+    };
+    memset(&init_state, 0, sizeof(init_state));
+    memset(&expect_state, 0, sizeof(expect_state));
+    init_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
+    expect_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
+    expect_state.hot.regs[8] = 5;
+    run_asm_test("bc1f_skip", bc1f_block, sizeof(bc1f_block)/4,
+                 &init_state, &expect_state);
+
+    /* BC1T - branch taken executes delay slot */
+    const uint32_t bc1t_block[] = {
+        0x45010002, /* bc1t 2 */
+        0x20080005, /* addi t0, zero, 5 (delay slot) */
+        0x20080006, /* addi t0, zero, 6 (skipped) */
+        0x20080007, /* addi t0, zero, 7 (target) */
+        0x00000000
+    };
+    memset(&init_state, 0, sizeof(init_state));
+    memset(&expect_state, 0, sizeof(expect_state));
+    init_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
+    expect_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
+    expect_state.hot.regs[8] = 7;
+    run_asm_test("bc1t_taken", bc1t_block, sizeof(bc1t_block)/4,
+                 &init_state, &expect_state);
+
+    /* BC1FL - branch not taken skips delay slot */
+    const uint32_t bc1fl_block[] = {
+        0x45020002, /* bc1fl 2 */
+        0x20080005, /* addi t0, zero, 5 (delay slot) */
+        0x00000000, /* nop */
+        0x00000000  /* nop target */
+    };
+    memset(&init_state, 0, sizeof(init_state));
+    memset(&expect_state, 0, sizeof(expect_state));
+    init_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
+    expect_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
+    run_asm_test("bc1fl_skip", bc1fl_block, sizeof(bc1fl_block)/4,
+                 &init_state, &expect_state);
+
+    /* BC1TL - branch taken updates delay slot and jumps */
+    const uint32_t bc1tl_block[] = {
+        0x45030002, /* bc1tl 2 */
+        0x20080005, /* addi t0, zero, 5 (delay slot) */
+        0x20080006, /* addi t0, zero, 6 (skipped) */
+        0x20080007, /* addi t0, zero, 7 (target) */
+        0x00000000
+    };
+    memset(&init_state, 0, sizeof(init_state));
+    memset(&expect_state, 0, sizeof(expect_state));
+    init_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
+    expect_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
+    expect_state.hot.regs[8] = 7;
+    run_asm_test("bc1tl_taken", bc1tl_block, sizeof(bc1tl_block)/4,
+                 &init_state, &expect_state);
 
 }
 END_TEST

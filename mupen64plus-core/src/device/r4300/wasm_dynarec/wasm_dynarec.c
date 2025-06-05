@@ -3,6 +3,7 @@
 #include "api/callbacks.h"
 #include "device/r4300/r4300_core.h"
 #include "device/r4300/new_dynarec/new_dynarec.h"
+#include "device/r4300/fpu.h"
 #include "wasm3.h"
 #include <unistd.h>
 #include <stdlib.h>
@@ -17,6 +18,7 @@
 #define CP0_OFFSET(r) (offsetof(struct new_dynarec_hot_state, cp0_regs) + (r) * sizeof(uint32_t))
 #define CP1_SIMPLE_OFFSET(r) (offsetof(struct new_dynarec_hot_state, cp1_regs_simple) + (r) * sizeof(float *))
 #define CP1_DOUBLE_OFFSET(r) (offsetof(struct new_dynarec_hot_state, cp1_regs_double) + (r) * sizeof(double *))
+#define CP1_FCR31_OFFSET offsetof(struct new_dynarec_hot_state, cp1_fcr31)
 
 struct wasm_dynarec_block
 {
@@ -2313,8 +2315,14 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
 
             const char *cond = NULL;
             switch (rtcode & ~0x10) {
-            case 0x00: cond = "lt_s"; break; /* BLTZ, BLTZAL */
-            case 0x01: cond = "ge_s"; break; /* BGEZ, BGEZAL */
+            case 0x00: /* BLTZ/BLTZAL */
+            case 0x02: /* BLTZL/BLTZALL */
+                cond = "lt_s";
+                break;
+            case 0x01: /* BGEZ/BGEZAL */
+            case 0x03: /* BGEZL/BGEZALL */
+                cond = "ge_s";
+                break;
             default:
                 append(&block->wat, &block->wat_size,
                        "    ;; unsupported REGIMM %02x\n", rtcode);
@@ -2371,6 +2379,59 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
                     if (!known) targets[target_count++] = fallthrough;
                 }
                 i++;
+            }
+        }
+            break;
+
+        case 0x11: /* COP1 */
+        {
+            if (rs == 0x08) {
+                uint32_t rtcode = rt & 0x3;
+                uint32_t target = (address + (i + 1) * 4) + ((int16_t)imm << 2);
+                uint32_t fallthrough = address + (i + 2) * 4;
+                uint32_t delay = (i + 1 < count) ? iw[i + 1] : 0;
+
+                int likely = (rtcode & 2) != 0;
+                int cond = (rtcode & 1) != 0;
+
+                append(&block->wat, &block->wat_size,
+                       "    ;; bc1%s%s\n",
+                       cond ? "t" : "f",
+                       likely ? "l" : "");
+
+                if (!likely)
+                    emit_simple_instr(&block->wat, &block->wat_size, delay);
+
+                append(&block->wat, &block->wat_size,
+                       "    local.get $base i32.load offset=%zu\n"
+                       "    i32.const %u\n"
+                       "    i32.and\n"
+                       "    i32.const 0\n"
+                       "    i32.%s\n",
+                       (size_t)CP1_FCR31_OFFSET,
+                       FCR31_CMP_BIT,
+                       cond ? "ne" : "eq");
+                append(&block->wat, &block->wat_size, "    if\n");
+                if (likely)
+                    emit_simple_instr(&block->wat, &block->wat_size, delay);
+                append(&block->wat, &block->wat_size,
+                       "      local.get $base\n      call $block_%08x\n    else\n      local.get $base\n      call $block_%08x\n    end\n",
+                       target, fallthrough);
+                if (target_count < 32) {
+                    int known = 0;
+                    for (size_t ti = 0; ti < target_count; ++ti)
+                        if (targets[ti] == target) { known = 1; break; }
+                    if (!known) targets[target_count++] = target;
+                }
+                if (target_count < 32) {
+                    int known = 0;
+                    for (size_t ti = 0; ti < target_count; ++ti)
+                        if (targets[ti] == fallthrough) { known = 1; break; }
+                    if (!known) targets[target_count++] = fallthrough;
+                }
+                i++;
+            } else {
+                emit_simple_instr(&block->wat, &block->wat_size, inst);
             }
         }
             break;
