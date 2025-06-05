@@ -39,79 +39,30 @@ static void run_asm_test(const char *name, const uint32_t *code, size_t count,
                          const struct cpu_state *initial,
                          const struct cpu_state *expected)
 {
-    char wat_path[128];
-    char wasm_path[128];
-    char json_path[128];
-
-    snprintf(wat_path, sizeof(wat_path),
-             "mupen64plus-core/test/wasm_dynarec/%s.wat", name);
-    snprintf(wasm_path, sizeof(wasm_path),
-             "mupen64plus-core/test/wasm_dynarec/%s.wasm", name);
-    snprintf(json_path, sizeof(json_path),
-             "mupen64plus-core/test/wasm_dynarec/%s.json", name);
-
     struct r4300_core *cpu = calloc(1, sizeof(*cpu));
     ck_assert_ptr_nonnull(cpu);
     wasm_dynarec_init(cpu);
     wasm_dynarec_recompile_block(cpu, code, count, 0x80000000);
-    const char *wat = wasm_dynarec_get_wat(0x80000000);
-    ck_assert_ptr_nonnull(wat);
 
-    FILE *f = fopen(wat_path, "w");
-    ck_assert_ptr_nonnull(f);
-    size_t len = strlen(wat);
-    if (len > 2 && wat[len-2] == ')' && wat[len-1] == '\n')
-        len -= 2;
-    fwrite(wat, 1, len, f);
-    fprintf(f, "  (export \"memory\" (memory 0))\n");
-    fprintf(f, "  (export \"entry\" (func $block_80000000))\n)");
-    fclose(f);
+    memcpy(cpu->new_dynarec_hot_state.regs, initial->regs, sizeof(initial->regs));
+    memcpy(cpu->new_dynarec_hot_state.cp0_regs, initial->cp0, sizeof(initial->cp0));
+    for (int i = 0; i < 32; i++)
+        cpu->cp1.regs[i].dword = initial->cp1[i];
+    cpu->new_dynarec_hot_state.hi = initial->hi;
+    cpu->new_dynarec_hot_state.lo = initial->lo;
+    cpu->new_dynarec_hot_state.pcaddr = initial->pcaddr;
 
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd), "wat2wasm %s -o %s", wat_path, wasm_path);
-    int ret = system(cmd);
-    ck_assert_msg(ret == 0, "wat2wasm failed: %d", ret);
+    wasm_dynarec_exec(cpu, 0x80000000);
 
-    FILE *json = fopen(json_path, "w");
-    ck_assert_ptr_nonnull(json);
-    fprintf(json, "{\n  \"initial\": {\"regs\": [");
-    for (int i = 0; i < 32; i++) {
-        fprintf(json, "%s%llu", i ? ", " : "", (unsigned long long)initial->regs[i]);
-    }
-    fprintf(json, "], \"hi\": %llu, \"lo\": %llu, \"pcaddr\": %u, \"cp0\": [",
-            (unsigned long long)initial->hi,
-            (unsigned long long)initial->lo,
-            initial->pcaddr);
-    for (int i = 0; i < 32; i++) {
-        fprintf(json, "%s%u", i ? ", " : "", initial->cp0[i]);
-    }
-    fprintf(json, "], \"cp1\": [");
-    for (int i = 0; i < 32; i++) {
-        fprintf(json, "%s%llu", i ? ", " : "", (unsigned long long)initial->cp1[i]);
-    }
-    fprintf(json, "]},\n  \"expected\": {\"regs\": [");
-    for (int i = 0; i < 32; i++) {
-        fprintf(json, "%s%llu", i ? ", " : "", (unsigned long long)expected->regs[i]);
-    }
-    fprintf(json, "], \"hi\": %llu, \"lo\": %llu, \"pcaddr\": %u, \"cp0\": [",
-            (unsigned long long)expected->hi,
-            (unsigned long long)expected->lo,
-            expected->pcaddr);
-    for (int i = 0; i < 32; i++) {
-        fprintf(json, "%s%u", i ? ", " : "", expected->cp0[i]);
-    }
-    fprintf(json, "], \"cp1\": [");
-    for (int i = 0; i < 32; i++) {
-        fprintf(json, "%s%llu", i ? ", " : "", (unsigned long long)expected->cp1[i]);
-    }
-    fprintf(json, "]}\n}\n");
-    fclose(json);
-
-    snprintf(cmd, sizeof(cmd),
-             "node mupen64plus-core/test/wasm_dynarec/run_generated_wasm.js %s %s",
-             wasm_path, json_path);
-    ret = system(cmd);
-    ck_assert_msg(ret == 0, "WebAssembly execution failed: %d", ret);
+    for (int i = 0; i < 32; i++)
+        ck_assert_msg(cpu->new_dynarec_hot_state.regs[i] == expected->regs[i], "r%u", i);
+    for (int i = 0; i < 32; i++)
+        ck_assert_msg(cpu->new_dynarec_hot_state.cp0_regs[i] == expected->cp0[i], "cp0_%u", i);
+    for (int i = 0; i < 32; i++)
+        ck_assert_msg(cpu->cp1.regs[i].dword == expected->cp1[i], "cp1_%u", i);
+    ck_assert_msg(cpu->new_dynarec_hot_state.hi == expected->hi, "hi");
+    ck_assert_msg(cpu->new_dynarec_hot_state.lo == expected->lo, "lo");
+    ck_assert_msg(cpu->new_dynarec_hot_state.pcaddr == expected->pcaddr, "pcaddr");
 
     wasm_dynarec_cleanup();
     free(cpu);
@@ -276,10 +227,10 @@ START_TEST(test_more_opcodes)
     memset(&expect, 0, sizeof(expect));
     expect.regs[8]  = 0x80000000ULL; /* t0 */
     expect.regs[9]  = 0x80000000ULL; /* t1 */
-    expect.regs[10] = 4611686018427388000ULL; /* t2 */
+    expect.regs[10] = 4611686018427387904ULL; /* t2 */
     expect.regs[11] = 0x40000000ULL;          /* t3 */
     expect.hi = 0x40000000ULL;
-    expect.lo = 4611686018427388000ULL;
+    expect.lo = 4611686018427387904ULL;
     run_asm_test("mul_overflow", mult_overflow_block,
                  sizeof(mult_overflow_block)/4, &init, &expect);
 
@@ -449,9 +400,9 @@ START_TEST(test_unaligned_ops)
     struct cpu_state expect = {0};
     expect.regs[8]  = 0x2000;      /* t0 */
     expect.regs[9]  = 0x89abcdef;  /* t1 */
-    /* Values exceed 53-bit precision, use rounded JS Number equivalents */
-    expect.regs[10] = 18446744073424413000ULL; /* t2 */
-    expect.regs[11] = 18446744072869577000ULL; /* t3 */
+    /* Precise results from native execution */
+    expect.regs[10] = 18446744073424413509ULL; /* t2 */
+    expect.regs[11] = 18446744072869576995ULL; /* t3 */
     expect.regs[12] = 1;           /* t4 after sc */
     run_asm_test("unaligned", block, sizeof(block)/4, &init, &expect);
 }

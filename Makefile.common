@@ -12,6 +12,7 @@ MINIZIP_DIR        = $(CORE_DIR)/subprojects/minizip
 LIBPNG_DIR         = $(ROOT_DIR)/custom/dependencies/libpng
 XXHASH_DIR         = $(ROOT_DIR)/xxHash
 ZLIB_DIR           = $(ROOT_DIR)/custom/dependencies/libzlib
+WASM3_DIR          = $(ROOT_DIR)/custom/dependencies/wasm3
 
 DYNAREC_USED := 0
 
@@ -33,6 +34,7 @@ MINIZIP_INCFLAGS = -I$(MINIZIP_DIR)
 LIBPNG_INCFLAGS  = -I$(LIBPNG_DIR)
 XXHASH_INCFLAGS  = -I$(XXHASH_DIR)
 ZLIB_INCFLAGS    = -I$(ZLIB_DIR)
+WASM3_INCFLAGS   = -I$(WASM3_DIR)
 
 SOURCES_C = \
 	$(CORE_DIR)/src/asm_defines/asm_defines.c \
@@ -122,8 +124,8 @@ LIBPNG_SOURCES_C = \
 	$(LIBPNG_DIR)/pngwutil.c
 
 ZLIB_SOURCES_C = \
-	$(ZLIB_DIR)/adler32.c \
-	$(ZLIB_DIR)/compress.c \
+        $(ZLIB_DIR)/adler32.c \
+        $(ZLIB_DIR)/compress.c \
 	$(ZLIB_DIR)/crc32.c \
 	$(ZLIB_DIR)/deflate.c \
 	$(ZLIB_DIR)/gzclose.c \
@@ -136,7 +138,24 @@ ZLIB_SOURCES_C = \
 	$(ZLIB_DIR)/inftrees.c \
 	$(ZLIB_DIR)/trees.c \
 	$(ZLIB_DIR)/uncompr.c \
-	$(ZLIB_DIR)/zutil.c
+        $(ZLIB_DIR)/zutil.c
+
+WASM3_SOURCES_C = \
+        $(WASM3_DIR)/m3_api_libc.c \
+        $(WASM3_DIR)/m3_api_meta_wasi.c \
+        $(WASM3_DIR)/m3_api_tracer.c \
+        $(WASM3_DIR)/m3_api_uvwasi.c \
+        $(WASM3_DIR)/m3_api_wasi.c \
+        $(WASM3_DIR)/m3_bind.c \
+        $(WASM3_DIR)/m3_code.c \
+        $(WASM3_DIR)/m3_compile.c \
+        $(WASM3_DIR)/m3_core.c \
+        $(WASM3_DIR)/m3_env.c \
+        $(WASM3_DIR)/m3_exec.c \
+        $(WASM3_DIR)/m3_function.c \
+        $(WASM3_DIR)/m3_info.c \
+        $(WASM3_DIR)/m3_module.c \
+        $(WASM3_DIR)/m3_parse.c
 
 AWK_DEST_DIR    := $(CORE_DIR)/src/asm_defines
 ASM_DEFINES_OBJ := $(AWK_DEST_DIR)/asm_defines.o
@@ -226,7 +245,9 @@ ifeq ($(WITH_DYNAREC), $(filter $(WITH_DYNAREC), x86_64 x64))
 endif
 ifeq ($(DYNAREC_USED),0)
 else
-	DYNAFLAGS += -DDYNAREC -I$(AWK_DEST_DIR)/
+        DYNAFLAGS += -DDYNAREC -I$(AWK_DEST_DIR)/
+        INCFLAGS += $(WASM3_INCFLAGS)
+        SOURCES_C += $(WASM3_SOURCES_C)
 endif
 endif
 
