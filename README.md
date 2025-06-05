@@ -48,9 +48,6 @@ dispatcher is invoked with that static address instead.
 Recent updates added handling for less common instructions such as `LDL/LDR`,
 system calls (`SYSCALL`, `BREAK`, `SYNC`), and cache management opcodes.
 `CACHE` and `PREF` are currently treated as no-ops.
-Floating point and coprocessor instructions remain unimplemented. Execution of
-the generated code is not yet implemented
-so the emulator continues to fall back to the cached interpreter.
 A table showing current opcode coverage can be found in [docs/wasm_dynarec_opcode_coverage.md](docs/wasm_dynarec_opcode_coverage.md).
 
  An accompanying unit test in `mupen64plus-core/test/wasm_dynarec` demonstrates
@@ -61,6 +58,7 @@ A table showing current opcode coverage can be found in [docs/wasm_dynarec_opcod
 `run_generated_wasm.js` that instantiates this module, initializes a minimal
 CPU state and executes the exported block using the browser-style WebAssembly
 API.
+When compiled with Emscripten the `wasm_dynarec_exec` function now calls a JavaScript helper. This helper uses `Module['wabt']` or `Binaryen` to compile the generated WAT into a binary module before running it. The runtime must provide one of these objects so execution can proceed. Memory accesses from JavaScript use helper functions exported with `EMSCRIPTEN_KEEPALIVE`.
 
 Additional unit tests exercise signed multiply/divide edge cases to ensure the
 HI and LO registers receive correctly sign-extended results even when operands
