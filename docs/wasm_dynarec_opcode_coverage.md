@@ -128,6 +128,16 @@ Memory access instructions call the core memory subsystem via imported callbacks
 | NEG_S |
 | SUB_D |
 | SUB_S |
+| CVT_D_S |
+| CVT_D_W |
+| CVT_D_L |
+| CVT_S_D |
+| CVT_S_W |
+| CVT_S_L |
+| CVT_W_S |
+| CVT_W_D |
+| CVT_L_S |
+| CVT_L_D |
 
 ## Not yet implemented
 
@@ -141,16 +151,6 @@ Memory access instructions call the core memory subsystem via imported callbacks
 | CFC2 |
 | CTC1 |
 | CTC2 |
-| CVT_D_L |
-| CVT_D_S |
-| CVT_D_W |
-| CVT_L_D |
-| CVT_L_S |
-| CVT_S_D |
-| CVT_S_L |
-| CVT_S_W |
-| CVT_W_D |
-| CVT_W_S |
 | C_EQ_D |
 | C_EQ_S |
 | C_F_D |
