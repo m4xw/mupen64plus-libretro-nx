@@ -112,15 +112,25 @@ This document tracks which MIPS instructions are currently handled by the experi
 | SYSCALL |
 | XOR |
 | XORI |
+| ABS_D |
+| ABS_S |
+| ADD_D |
+| ADD_S |
+| DIV_D |
+| DIV_S |
+| MOV_D |
+| MOV_S |
+| MUL_D |
+| MUL_S |
+| NEG_D |
+| NEG_S |
+| SUB_D |
+| SUB_S |
 
 ## Not yet implemented
 
 | Opcode |
 |--------|
-| ABS_D |
-| ABS_S |
-| ADD_D |
-| ADD_S |
 | CEIL_L_D |
 | CEIL_L_S |
 | CEIL_W_D |
@@ -173,8 +183,6 @@ This document tracks which MIPS instructions are currently handled by the experi
 | C_UN_S |
 | DCFC1 |
 | DCTC1 |
-| DIV_D |
-| DIV_S |
 | DMFC2 |
 | DMTC2 |
 | ERET |
@@ -183,13 +191,7 @@ This document tracks which MIPS instructions are currently handled by the experi
 | FLOOR_W_D |
 | FLOOR_W_S |
 | MFC2 |
-| MOV_D |
-| MOV_S |
 | MTC2 |
-| MUL_D |
-| MUL_S |
-| NEG_D |
-| NEG_S |
 | NI |
 | RESERVED |
 | RESERVED_COP2 |
@@ -199,8 +201,6 @@ This document tracks which MIPS instructions are currently handled by the experi
 | ROUND_W_S |
 | SQRT_D |
 | SQRT_S |
-| SUB_D |
-| SUB_S |
 | TLBP |
 | TLBR |
 | TLBWI |

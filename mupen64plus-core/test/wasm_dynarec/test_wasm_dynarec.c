@@ -659,6 +659,49 @@ START_TEST(test_cp1_moves)
 }
 END_TEST
 
+START_TEST(test_cp1_arith)
+{
+    const uint32_t block[] = {
+        0x46010080, /* add.s f2, f0, f1 */
+        0x460100c1, /* sub.s f3, f0, f1 */
+        0x46010102, /* mul.s f4, f0, f1 */
+        0x46010143, /* div.s f5, f0, f1 */
+        0x46001985, /* abs.s f6, f3 */
+        0x460021c7, /* neg.s f7, f4 */
+        0x46002a06, /* mov.s f8, f5 */
+        0x462b5300, /* add.d f12, f10, f11 */
+        0x462b5341, /* sub.d f13, f10, f11 */
+        0x462b5382, /* mul.d f14, f10, f11 */
+        0x462b53c3, /* div.d f15, f10, f11 */
+        0x46206c05, /* abs.d f16, f13 */
+        0x46207447, /* neg.d f17, f14 */
+        0x46207c86, /* mov.d f18, f15 */
+        0x00000000  /* nop */
+    };
+    struct cpu_state init = {0};
+    init.cp1[0]  = 0x3f800000ULL;           /* 1.0f */
+    init.cp1[1]  = 0x40000000ULL;           /* 2.0f */
+    init.cp1[10] = 0x3ff8000000000000ULL;   /* 1.5 */
+    init.cp1[11] = 0x4000000000000000ULL;   /* 2.0 */
+    struct cpu_state expect = init;
+    expect.cp1[2]  = 0x40400000ULL;         /* 3.0f */
+    expect.cp1[3]  = 0xbf800000ULL;         /* -1.0f */
+    expect.cp1[4]  = 0x40000000ULL;         /* 2.0f */
+    expect.cp1[5]  = 0x3f000000ULL;         /* 0.5f */
+    expect.cp1[6]  = 0x3f800000ULL;         /* 1.0f */
+    expect.cp1[7]  = 0xc0000000ULL;         /* -2.0f */
+    expect.cp1[8]  = 0x3f000000ULL;         /* 0.5f */
+    expect.cp1[12] = 0x400c000000000000ULL; /* 3.5 */
+    expect.cp1[13] = 0xbfe0000000000000ULL; /* -0.5 */
+    expect.cp1[14] = 0x4008000000000000ULL; /* 3.0 */
+    expect.cp1[15] = 0x3fe8000000000000ULL; /* 0.75 */
+    expect.cp1[16] = 0x3fe0000000000000ULL; /* 0.5 */
+    expect.cp1[17] = 0xc008000000000000ULL; /* -3.0 */
+    expect.cp1[18] = 0x3fe8000000000000ULL; /* 0.75 */
+    run_asm_test("cp1_arith", block, sizeof(block)/4, &init, &expect);
+}
+END_TEST
+
 START_TEST(test_complex_control_flow)
 {
     /* Loop with branches, delay slots and a dynamic jump back inside the block */
@@ -703,6 +746,7 @@ Suite *create_suite(void)
     tcase_add_test(tc_core, test_branch_likely);
     tcase_add_test(tc_core, test_cp0_moves);
     tcase_add_test(tc_core, test_cp1_moves);
+    tcase_add_test(tc_core, test_cp1_arith);
     tcase_add_test(tc_core, test_complex_control_flow);
     suite_add_tcase(s, tc_core);
     return s;
