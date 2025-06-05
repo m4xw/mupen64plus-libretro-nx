@@ -3,6 +3,8 @@
 #include "api/callbacks.h"
 #include "device/r4300/r4300_core.h"
 #include "device/r4300/new_dynarec/new_dynarec.h"
+#include "wasm3.h"
+#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
@@ -21,10 +23,23 @@ struct wasm_dynarec_block
     uint32_t address;
     char *wat;
     size_t wat_size;
+    uint32_t mem_pages;
 };
 
 static struct wasm_dynarec_block *g_blocks = NULL;
 static size_t g_blocks_count = 0;
+
+static struct r4300_core *g_current_cpu = NULL;
+
+m3ApiRawFunction(wasm_dynarec_dispatch_import)
+{
+    m3ApiGetArg(uint32_t, base);
+    m3ApiGetArg(uint32_t, addr);
+    (void)base;
+    if (g_current_cpu)
+        wasm_dynarec_dispatch(g_current_cpu, addr);
+    m3ApiSuccess();
+}
 
 static struct wasm_dynarec_block *get_block(uint32_t address)
 {
@@ -1758,14 +1773,18 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
         block->address = address;
         block->wat = NULL;
         block->wat_size = 0;
+        block->mem_pages = 0;
     }
+
+    size_t mem_bytes = sizeof(struct new_dynarec_hot_state) + 0x8000 + 0x1000;
+    block->mem_pages = (mem_bytes + 65535) / 65536;
 
     append(&block->wat, &block->wat_size,
            "(module\n"
            "  (import \"env\" \"wasm_dynarec_dispatch\" (func $dispatch (param i32 i32)))\n"
-           "  (memory 1)\n"
+           "  (memory %u)\n"
            "  (func $block_%x (param $base i32) (local $t i64) (local $tmp i32)\n",
-           address);
+           block->mem_pages, address);
 
     for (size_t i = 0; i < count; ++i) {
         uint32_t inst = iw[i];
@@ -2029,17 +2048,83 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
 
 void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
 {
-    (void)r4300;
-
     struct wasm_dynarec_block *block = get_block(address);
-    if (!block) {
+    if (!block || !block->wat) {
         DebugMessage(M64MSG_WARNING, "No WebAssembly block for %08x; using interpreter", address);
         return;
     }
 
     DebugMessage(M64MSG_INFO, "Executing WebAssembly block %08x", address);
-    DebugMessage(M64MSG_VERBOSE, "\n%s", block->wat ? block->wat : "<empty>");
-    /* Actual execution of WebAssembly not implemented yet */
+    DebugMessage(M64MSG_VERBOSE, "\n%s", block->wat);
+
+    char wat_path[64];
+    char wasm_path[64];
+    snprintf(wat_path, sizeof(wat_path), "/tmp/block_%08x.wat", address);
+    snprintf(wasm_path, sizeof(wasm_path), "/tmp/block_%08x.wasm", address);
+
+    FILE *f = fopen(wat_path, "w");
+    if (!f)
+        return;
+    size_t len = strlen(block->wat);
+    if (len > 2 && block->wat[len-2] == ')' && block->wat[len-1] == '\n')
+        len -= 2;
+    fwrite(block->wat, 1, len, f);
+    fprintf(f, "  (export \"memory\" (memory 0))\n");
+    fprintf(f, "  (export \"entry\" (func $block_%08x))\n)", address);
+    fclose(f);
+
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "wat2wasm %s -o %s", wat_path, wasm_path);
+    if (system(cmd) != 0)
+        return;
+
+    FILE *wf = fopen(wasm_path, "rb");
+    if (!wf)
+        return;
+    fseek(wf, 0, SEEK_END);
+    size_t wasm_size = ftell(wf);
+    fseek(wf, 0, SEEK_SET);
+    uint8_t *wasm = malloc(wasm_size);
+    fread(wasm, 1, wasm_size, wf);
+    fclose(wf);
+
+    IM3Environment env = m3_NewEnvironment();
+    IM3Runtime runtime = m3_NewRuntime(env, 64*1024, NULL);
+    IM3Module module = NULL;
+    M3Result m3res = m3_ParseModule(env, &module, wasm, wasm_size);
+    if (!m3res) m3res = m3_LoadModule(runtime, module);
+    if (m3res) { free(wasm); m3_FreeRuntime(runtime); m3_FreeEnvironment(env); return; }
+
+    g_current_cpu = r4300;
+    m3_LinkRawFunction(module, "env", "wasm_dynarec_dispatch", "v(ii)", wasm_dynarec_dispatch_import);
+
+    IM3Function entry;
+    m3_FindFunction(&entry, runtime, "entry");
+
+    uint8_t *mem = m3_GetMemory(runtime, NULL, 0);
+    struct new_dynarec_hot_state *state = (struct new_dynarec_hot_state*)mem;
+
+    memcpy(mem, &r4300->new_dynarec_hot_state, sizeof(*state));
+    for (int i = 0; i < 32; i++) {
+        uint64_t *p = (uint64_t*)(mem + 0x8000 + i*8);
+        *p = r4300->cp1.regs[i].dword;
+        *(uint64_t*)(mem + CP1_SIMPLE_OFFSET(i)) = 0x8000 + i*8;
+        *(uint64_t*)(mem + CP1_DOUBLE_OFFSET(i)) = 0x8000 + i*8;
+    }
+
+    m3_CallV(entry, 0);
+
+    memcpy(&r4300->new_dynarec_hot_state, mem, sizeof(*state));
+    for (int i = 0; i < 32; i++)
+        r4300->cp1.regs[i].dword = *(uint64_t*)(mem + 0x8000 + i*8);
+
+    g_current_cpu = NULL;
+
+    m3_FreeRuntime(runtime);
+    m3_FreeEnvironment(env);
+    free(wasm);
+    unlink(wasm_path);
+    unlink(wat_path);
 }
 
 void wasm_dynarec_dump(uint32_t address)
