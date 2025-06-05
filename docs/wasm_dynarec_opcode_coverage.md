@@ -57,6 +57,7 @@ Memory access instructions call the core memory subsystem via imported callbacks
 | DSUB |
 | DSUBU |
 | J |
+| JAL |
 | JALR |
 | JR |
 | LB |
@@ -142,15 +143,19 @@ Memory access instructions call the core memory subsystem via imported callbacks
 | CVT_W_D |
 | CVT_L_S |
 | CVT_L_D |
+| CEIL_L_D |
+| CEIL_L_S |
+| CEIL_W_D |
+| CEIL_W_S |
+| FLOOR_L_D |
+| FLOOR_L_S |
+| FLOOR_W_D |
+| FLOOR_W_S |
 
 ## Not yet implemented
 
 | Opcode |
 |--------|
-| CEIL_L_D |
-| CEIL_L_S |
-| CEIL_W_D |
-| CEIL_W_S |
 | CFC1 |
 | CFC2 |
 | CTC1 |
@@ -192,10 +197,6 @@ Memory access instructions call the core memory subsystem via imported callbacks
 | DMFC2 |
 | DMTC2 |
 | ERET |
-| FLOOR_L_D |
-| FLOOR_L_S |
-| FLOOR_W_D |
-| FLOOR_W_S |
 | MFC2 |
 | MTC2 |
 | NI |

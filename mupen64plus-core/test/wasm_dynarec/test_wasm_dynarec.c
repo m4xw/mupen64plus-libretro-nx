@@ -21,6 +21,14 @@
 #define CVT_D_W(fd, fs) ENCODE_COP1(0x14, 0, fs, fd, 0x21)
 #define CVT_S_L(fd, fs) ENCODE_COP1(0x15, 0, fs, fd, 0x20)
 #define CVT_D_L(fd, fs) ENCODE_COP1(0x15, 0, fs, fd, 0x21)
+#define CEIL_L_S(fd, fs) ENCODE_COP1(0x10, 0, fs, fd, 0x0a)
+#define CEIL_L_D(fd, fs) ENCODE_COP1(0x11, 0, fs, fd, 0x0a)
+#define CEIL_W_S(fd, fs) ENCODE_COP1(0x10, 0, fs, fd, 0x0e)
+#define CEIL_W_D(fd, fs) ENCODE_COP1(0x11, 0, fs, fd, 0x0e)
+#define FLOOR_L_S(fd, fs) ENCODE_COP1(0x10, 0, fs, fd, 0x0b)
+#define FLOOR_L_D(fd, fs) ENCODE_COP1(0x11, 0, fs, fd, 0x0b)
+#define FLOOR_W_S(fd, fs) ENCODE_COP1(0x10, 0, fs, fd, 0x0f)
+#define FLOOR_W_D(fd, fs) ENCODE_COP1(0x11, 0, fs, fd, 0x0f)
 
 /* minimal stubs to satisfy the dynarec build */
 void DebugMessage(int level, const char *fmt, ...) {}
@@ -1006,6 +1014,64 @@ START_TEST(test_fp_conversions)
 }
 END_TEST
 
+START_TEST(test_fp_ceil)
+{
+    const uint32_t block[] = {
+        CEIL_L_S(6, 0),
+        CEIL_L_D(7, 2),
+        CEIL_W_S(8, 0),
+        CEIL_W_D(9, 2),
+        0x00000000
+    };
+    memset(&init_state, 0, sizeof(init_state));
+    {
+        float val_s = 1.2f;
+        memcpy(&init_state.cp1[0], &val_s, sizeof(val_s));
+    }
+    {
+        double val_d = 1.5;
+        memcpy(&init_state.cp1[2], &val_d, sizeof(val_d));
+    }
+    memset(&expect_state, 0, sizeof(expect_state));
+    expect_state.cp1[0] = init_state.cp1[0];
+    expect_state.cp1[2] = init_state.cp1[2];
+    expect_state.cp1[6] = 0x0000000000000002ULL; /* ceil.l.s result */
+    expect_state.cp1[7] = 0x0000000000000002ULL; /* ceil.l.d result */
+    expect_state.cp1[8] = 0x0000000000000002ULL; /* ceil.w.s result */
+    expect_state.cp1[9] = 0x0000000000000002ULL; /* ceil.w.d result */
+    run_asm_test("fp_ceil", block, sizeof(block)/4, &init_state, &expect_state);
+}
+END_TEST
+
+START_TEST(test_fp_floor)
+{
+    const uint32_t block[] = {
+        FLOOR_L_S(6, 0),
+        FLOOR_L_D(7, 2),
+        FLOOR_W_S(8, 0),
+        FLOOR_W_D(9, 2),
+        0x00000000
+    };
+    memset(&init_state, 0, sizeof(init_state));
+    {
+        float val_s = 1.8f;
+        memcpy(&init_state.cp1[0], &val_s, sizeof(val_s));
+    }
+    {
+        double val_d = 1.5;
+        memcpy(&init_state.cp1[2], &val_d, sizeof(val_d));
+    }
+    memset(&expect_state, 0, sizeof(expect_state));
+    expect_state.cp1[0] = init_state.cp1[0];
+    expect_state.cp1[2] = init_state.cp1[2];
+    expect_state.cp1[6] = 0x0000000000000001ULL; /* floor.l.s result */
+    expect_state.cp1[7] = 0x0000000000000001ULL; /* floor.l.d result */
+    expect_state.cp1[8] = 0x0000000000000001ULL; /* floor.w.s result */
+    expect_state.cp1[9] = 0x0000000000000001ULL; /* floor.w.d result */
+    run_asm_test("fp_floor", block, sizeof(block)/4, &init_state, &expect_state);
+}
+END_TEST
+
 Suite *create_suite(void)
 {
     Suite *s = suite_create("WebAssembly Dynarec");
@@ -1025,6 +1091,8 @@ Suite *create_suite(void)
     tcase_add_test(tc_core, test_muldiv_64);
     tcase_add_test(tc_core, test_ldl_ldr);
     tcase_add_test(tc_core, test_fp_conversions);
+    tcase_add_test(tc_core, test_fp_ceil);
+    tcase_add_test(tc_core, test_fp_floor);
     tcase_add_test(tc_core, test_complex_control_flow);
     suite_add_tcase(s, tc_core);
     return s;
