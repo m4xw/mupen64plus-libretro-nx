@@ -65,6 +65,7 @@ enum {
     EMUMODE_PURE_INTERPRETER = 0,
     EMUMODE_INTERPRETER      = 1,
     EMUMODE_DYNAREC          = 2,
+    EMUMODE_WASM_DYNAREC     = 3,
 };
 
 
