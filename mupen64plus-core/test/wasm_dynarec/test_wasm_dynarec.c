@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <unistd.h>
 
 #include "device/r4300/r4300_core.h"
 #include "device/r4300/wasm_dynarec/wasm_dynarec.h"
@@ -142,11 +143,28 @@ static void run_asm_test(const char *name, const uint32_t *code, size_t count,
     wasm_dynarec_init(cpu);
     wasm_dynarec_recompile_block(cpu, code, count, 0x80000000);
 
+    const char *wat_env = getenv("WASM_TEST_WAT");
+    if (wat_env && wat_env[0]) {
+        const char *wat = wasm_dynarec_get_wat(0x80000000);
+        if (wat)
+            printf("%s WAT:\n%s\n", name, wat);
+    }
+
     memcpy(&cpu->new_dynarec_hot_state, &initial->hot, sizeof(cpu->new_dynarec_hot_state));
     for (int i = 0; i < 32; i++)
         cpu->cp1.regs[i].dword = initial->cp1[i];
 
     wasm_dynarec_exec(cpu, 0x80000000);
+
+    const char *dbg_env = getenv("WASM_TEST_DEBUG");
+    if (dbg_env && dbg_env[0]) {
+        printf("%s: r2=%llx a0=%llx sp=%llx pc=%x\n", name,
+               (unsigned long long)cpu->new_dynarec_hot_state.regs[2],
+               (unsigned long long)cpu->new_dynarec_hot_state.regs[4],
+               (unsigned long long)cpu->new_dynarec_hot_state.regs[29],
+               cpu->new_dynarec_hot_state.pcaddr);
+        fflush(stdout);
+    }
 
     for (int i = 0; i < 32; i++)
         ck_assert_msg(cpu->new_dynarec_hot_state.regs[i] == expected->hot.regs[i], "r%u", i);
@@ -156,7 +174,8 @@ static void run_asm_test(const char *name, const uint32_t *code, size_t count,
         ck_assert_msg(cpu->cp1.regs[i].dword == expected->cp1[i], "cp1_%u", i);
     ck_assert_msg(cpu->new_dynarec_hot_state.hi == expected->hot.hi, "hi");
     ck_assert_msg(cpu->new_dynarec_hot_state.lo == expected->hot.lo, "lo");
-    ck_assert_msg(cpu->new_dynarec_hot_state.pcaddr == expected->hot.pcaddr, "pcaddr");
+    if (expected->hot.pcaddr)
+        ck_assert_msg(cpu->new_dynarec_hot_state.pcaddr == expected->hot.pcaddr, "pcaddr");
 
     wasm_dynarec_cleanup();
     free(cpu);
@@ -226,6 +245,7 @@ START_TEST(test_opcode_scenarios)
     memset(&init_state, 0, sizeof(init_state));
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[3] = 2;
+    expect_state.hot.pcaddr = 0x80000010;
     run_asm_test("branch", branch_block, sizeof(branch_block)/4, &init_state, &expect_state);
 }
 END_TEST
@@ -518,6 +538,7 @@ START_TEST(test_delay_slots)
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8] = 0;  /* t0 */
     expect_state.hot.regs[9] = 15; /* t1 */
+    expect_state.hot.pcaddr = 0x80000010;
     run_asm_test("delay_beq_taken", taken_block, sizeof(taken_block)/4,
                  &init_state, &expect_state);
 
@@ -535,6 +556,7 @@ START_TEST(test_delay_slots)
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8] = 1;  /* t0 */
     expect_state.hot.regs[9] = 4;  /* t1 after delay slot and jump */
+    expect_state.hot.pcaddr = 0x8000001c;
     run_asm_test("delay_bne_not", not_block, sizeof(not_block)/4, &init_state, &expect_state);
 }
 END_TEST
@@ -555,6 +577,7 @@ START_TEST(test_branch_likely)
     expect_state.hot.regs[8]  = 1; /* t0 */
     expect_state.hot.regs[9]  = 2; /* t1 */
     expect_state.hot.regs[10] = 0; /* t2 remains 0 */
+    expect_state.hot.pcaddr   = 0x80000018;
     run_asm_test("beql_skip", beql_block, sizeof(beql_block)/4, &init_state, &expect_state);
 
     /* BNEL - branch not taken skips delay slot */
@@ -571,6 +594,7 @@ START_TEST(test_branch_likely)
     expect_state.hot.regs[8]  = 1; /* t0 */
     expect_state.hot.regs[9]  = 1; /* t1 */
     expect_state.hot.regs[10] = 0; /* t2 remains 0 */
+    expect_state.hot.pcaddr   = 0x80000018;
     run_asm_test("bnel_skip", bnel_block, sizeof(bnel_block)/4, &init_state, &expect_state);
 
     /* BLEZL - branch not taken skips delay slot */
@@ -585,6 +609,7 @@ START_TEST(test_branch_likely)
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8] = 1; /* t0 */
     expect_state.hot.regs[9] = 0; /* t1 remains 0 */
+    expect_state.hot.pcaddr   = 0x80000014;
     run_asm_test("blezl_skip", blezl_block, sizeof(blezl_block)/4, &init_state, &expect_state);
 
     /* BGTZL - branch not taken skips delay slot */
@@ -599,6 +624,7 @@ START_TEST(test_branch_likely)
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8] = 0; /* t0 */
     expect_state.hot.regs[9] = 0; /* t1 remains 0 */
+    expect_state.hot.pcaddr   = 0x80000014;
     run_asm_test("bgtzl_skip", bgtzl_block, sizeof(bgtzl_block)/4, &init_state, &expect_state);
 
     /* BLTZL - branch not taken skips delay slot */
@@ -613,6 +639,7 @@ START_TEST(test_branch_likely)
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8] = 1; /* t0 */
     expect_state.hot.regs[9] = 0; /* t1 remains 0 */
+    expect_state.hot.pcaddr   = 0x80000014;
     run_asm_test("bltzl_skip", bltzl_block, sizeof(bltzl_block)/4, &init_state, &expect_state);
 
     /* BGEZL - branch not taken skips delay slot */
@@ -627,6 +654,7 @@ START_TEST(test_branch_likely)
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8] = (uint64_t)-1; /* t0 */
     expect_state.hot.regs[9] = 0;           /* t1 remains 0 */
+    expect_state.hot.pcaddr   = 0x80000014;
     run_asm_test("bgezl_skip", bgezl_block, sizeof(bgezl_block)/4, &init_state, &expect_state);
 
     /* BGEZAL - branch taken updates link register */
@@ -642,6 +670,7 @@ START_TEST(test_branch_likely)
     expect_state.hot.regs[8]  = 0;                      /* t0 */
     expect_state.hot.regs[9]  = 5;                      /* t1 */
     expect_state.hot.regs[31] = 0xffffffff8000000cULL;  /* ra */
+    expect_state.hot.pcaddr   = 0x80000014;
     run_asm_test("bgezal_link", bgezal_block, sizeof(bgezal_block)/4, &init_state, &expect_state);
 
     /* BLTZL - branch taken executes delay slot */
@@ -657,6 +686,7 @@ START_TEST(test_branch_likely)
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8] = (uint64_t)-1; /* t0 */
     expect_state.hot.regs[9] = 7;            /* t1 */
+    expect_state.hot.pcaddr  = 0x80000018;
     run_asm_test("bltzl_taken", bltzl_taken_block,
                  sizeof(bltzl_taken_block)/4, &init_state, &expect_state);
 
@@ -674,6 +704,7 @@ START_TEST(test_branch_likely)
     expect_state.hot.regs[8]  = 0;                       /* t0 */
     expect_state.hot.regs[9]  = 7;                       /* t1 */
     expect_state.hot.regs[31] = 0xffffffff8000000cULL;   /* ra */
+    expect_state.hot.pcaddr   = 0x80000018;
     run_asm_test("bgezall_link", bgezall_block, sizeof(bgezall_block)/4,
                  &init_state, &expect_state);
 
@@ -689,6 +720,7 @@ START_TEST(test_branch_likely)
     init_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
     expect_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
     expect_state.hot.regs[8] = 5;
+    expect_state.hot.pcaddr = 0x80000010;
     run_asm_test("bc1f_skip", bc1f_block, sizeof(bc1f_block)/4,
                  &init_state, &expect_state);
 
@@ -705,6 +737,7 @@ START_TEST(test_branch_likely)
     init_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
     expect_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
     expect_state.hot.regs[8] = 7;
+    expect_state.hot.pcaddr = 0x80000014;
     run_asm_test("bc1t_taken", bc1t_block, sizeof(bc1t_block)/4,
                  &init_state, &expect_state);
 
@@ -719,6 +752,7 @@ START_TEST(test_branch_likely)
     memset(&expect_state, 0, sizeof(expect_state));
     init_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
     expect_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
+    expect_state.hot.pcaddr = 0x80000010;
     run_asm_test("bc1fl_skip", bc1fl_block, sizeof(bc1fl_block)/4,
                  &init_state, &expect_state);
 
@@ -735,6 +769,7 @@ START_TEST(test_branch_likely)
     init_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
     expect_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
     expect_state.hot.regs[8] = 7;
+    expect_state.hot.pcaddr = 0x80000014;
     run_asm_test("bc1tl_taken", bc1tl_block, sizeof(bc1tl_block)/4,
                  &init_state, &expect_state);
 
@@ -1200,6 +1235,175 @@ START_TEST(test_self_modifying)
 }
 END_TEST
 
+static int host_fib(int n)
+{
+    int a = 0, b = 1;
+    for (int i = 0; i < n; ++i) {
+        int t = a + b;
+        a = b;
+        b = t;
+    }
+    return a;
+}
+
+START_TEST(test_fibonacci_c)
+{
+    /* Compile the C fibonacci implementation to MIPS64 and dump the code */
+    const char *src = access("fib.c", F_OK) == 0 ? "fib.c" : "mupen64plus-core/test/wasm_dynarec/fib.c";
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "mips-linux-gnu-gcc -O2 -mabi=32 -march=vr4300 -mno-abicalls -fno-stack-protector -nostdlib -c %s -o fib.o", src);
+    int ret = system(cmd);
+    ck_assert_msg(ret == 0, "compile failed: %d", ret);
+    ret = system("mips-linux-gnu-objdump -d fib.o > fib.objdump");
+    ck_assert_msg(ret == 0, "objdump failed: %d", ret);
+    ret = system("mips-linux-gnu-objcopy -O binary -j .text fib.o fib.bin");
+    ck_assert_msg(ret == 0, "objcopy failed: %d", ret);
+
+    FILE *f = fopen("fib.bin", "rb");
+    ck_assert_ptr_nonnull(f);
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    rewind(f);
+    uint8_t *buf = malloc(len);
+    fread(buf, 1, len, f);
+    fclose(f);
+
+    size_t count = len / 4;
+    uint32_t *code = malloc(len);
+    for (size_t i = 0; i < count; ++i) {
+        code[i] = ((uint32_t)buf[i*4] << 24) |
+                  ((uint32_t)buf[i*4+1] << 16) |
+                  ((uint32_t)buf[i*4+2] << 8) |
+                  (uint32_t)buf[i*4+3];
+    }
+    free(buf);
+
+    memset(&init_state, 0, sizeof(init_state));
+    memset(&expect_state, 0, sizeof(expect_state));
+    init_state.hot.regs[4] = 10;     /* argument n */
+    /* Use a high memory address so the dynarec can use fast memory access. */
+    init_state.hot.regs[29] = 0x80002000; /* stack pointer */
+    expect_state.hot.regs[2] = host_fib(10);
+    expect_state.hot.regs[29] = init_state.hot.regs[29];
+
+    run_asm_test("fib_c", code, count, &init_state, &expect_state);
+
+    free(code);
+    remove("fib.o");
+    remove("fib.bin");
+    remove("fib.objdump");
+}
+END_TEST
+
+START_TEST(test_stack_rw)
+{
+    const uint32_t block[] = {
+        0x27bdfff8, /* addiu sp, sp, -8 */
+        0x24081234, /* addiu t0, zero, 0x1234 */
+        0xafa80000, /* sw t0, 0(sp) */
+        0x8fa20000, /* lw v0, 0(sp) */
+        0x27bd0008, /* addiu sp, sp, 8 */
+        0x03e00008, /* jr ra */
+        0x00000000  /* nop */
+    };
+
+    memset(&init_state, 0, sizeof(init_state));
+    memset(&expect_state, 0, sizeof(expect_state));
+    init_state.hot.regs[29] = 0x80002000; /* stack pointer */
+    expect_state.hot.regs[2] = 0x1234;    /* loaded value */
+    expect_state.hot.regs[8] = 0x1234;    /* t0 preserved */
+    expect_state.hot.regs[29] = init_state.hot.regs[29];
+
+    run_asm_test("stack_rw", block, sizeof(block)/4, &init_state, &expect_state);
+}
+END_TEST
+
+START_TEST(test_stack_offset)
+{
+    const uint32_t block[] = {
+        0x27bdfff0, /* addiu sp, sp, -16 */
+        0x24081111, /* addiu t0, zero, 0x1111 */
+        0xafa80000, /* sw t0, 0(sp) */
+        0x24092222, /* addiu t1, zero, 0x2222 */
+        0xafa90004, /* sw t1, 4(sp) */
+        0x27bd0008, /* addiu sp, sp, 8 */
+        0x8fa2fff8, /* lw v0, -8(sp) */
+        0x8fa3fffc, /* lw v1, -4(sp) */
+        0x27bd0008, /* addiu sp, sp, 8 */
+        0x03e00008, /* jr ra */
+        0x00000000  /* nop */
+    };
+
+    memset(&init_state, 0, sizeof(init_state));
+    memset(&expect_state, 0, sizeof(expect_state));
+    init_state.hot.regs[29] = 0x80002000; /* stack pointer */
+    expect_state.hot.regs[2] = 0x1111;
+    expect_state.hot.regs[3] = 0x2222;
+    expect_state.hot.regs[8] = 0x1111; /* t0 preserved */
+    expect_state.hot.regs[9] = 0x2222; /* t1 preserved */
+    expect_state.hot.regs[29] = init_state.hot.regs[29];
+
+    run_asm_test("stack_offset", block, sizeof(block)/4, &init_state, &expect_state);
+}
+END_TEST
+START_TEST(test_loop_stack)
+{
+    const uint32_t block[] = {
+        0x27bdfff8, /* addiu sp, sp, -8 */
+        0xafa00000, /* sw zero, 0(sp) */
+        0xafa00004, /* sw zero, 4(sp) */
+        0x8fa80000, /* lw t0, 0(sp) */
+        0x8fa90004, /* lw t1, 4(sp) */
+        0x25290001, /* addiu t1, t1, 1 */
+        0x25080001, /* addiu t0, t0, 1 */
+        0xafa80000, /* sw t0, 0(sp) */
+        0xafa90004, /* sw t1, 4(sp) */
+        0x290a0005, /* slti t2, t0, 5 */
+        0x1540fff8, /* bnez t2, -8 instructions */
+        0x00000000, /* nop */
+        0x8fa20004, /* lw v0, 4(sp) */
+        0x27bd0008, /* addiu sp, sp, 8 */
+        0x03e00008, /* jr ra */
+        0x00000000  /* nop */
+    };
+
+    memset(&init_state, 0, sizeof(init_state));
+    memset(&expect_state, 0, sizeof(expect_state));
+    init_state.hot.regs[29] = 0x80002000; /* stack pointer */
+    expect_state.hot.regs[2] = 5;         /* return value */
+    expect_state.hot.regs[29] = init_state.hot.regs[29];
+
+    run_asm_test("loop_stack", block, sizeof(block)/4, &init_state, &expect_state);
+}
+END_TEST
+
+START_TEST(test_slti_sign)
+{
+    const uint32_t block[] = {
+        0x2408fffb, /* addiu t0, zero, -5 */
+        0x2909fffd, /* slti t1, t0, -3 */
+        0x290a0000, /* slti t2, t0, 0 */
+        0x24080005, /* addiu t0, zero, 5 */
+        0x290bfffb, /* slti t3, t0, -5 */
+        0x290c0005, /* slti t4, t0, 5 */
+        0x290d0006, /* slti t5, t0, 6 */
+        0x03e00008, /* jr ra */
+        0x00000000  /* nop */
+    };
+
+    memset(&init_state, 0, sizeof(init_state));
+    memset(&expect_state, 0, sizeof(expect_state));
+    expect_state.hot.regs[8]  = 5;  /* t0 final */
+    expect_state.hot.regs[9]  = 1;  /* t1 */
+    expect_state.hot.regs[10] = 1;  /* t2 */
+    expect_state.hot.regs[11] = 0;  /* t3 */
+    expect_state.hot.regs[12] = 0;  /* t4 */
+    expect_state.hot.regs[13] = 1;  /* t5 */
+
+    run_asm_test("slti_sign", block, sizeof(block)/4, &init_state, &expect_state);
+}
+END_TEST
+
 Suite *create_suite(void)
 {
     Suite *s = suite_create("WebAssembly Dynarec");
@@ -1223,6 +1427,11 @@ Suite *create_suite(void)
     tcase_add_test(tc_core, test_fp_floor);
     tcase_add_test(tc_core, test_fp_round);
     tcase_add_test(tc_core, test_fp_trunc);
+    tcase_add_test(tc_core, test_slti_sign);
+    tcase_add_test(tc_core, test_stack_rw);
+    tcase_add_test(tc_core, test_stack_offset);
+    tcase_add_test(tc_core, test_loop_stack);
+    tcase_add_test(tc_core, test_fibonacci_c);
     tcase_add_test(tc_core, test_self_modifying);
     tcase_add_test(tc_core, test_complex_control_flow);
     suite_add_tcase(s, tc_core);
