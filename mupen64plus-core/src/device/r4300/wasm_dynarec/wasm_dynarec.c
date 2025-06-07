@@ -5,6 +5,7 @@
 #include "device/r4300/new_dynarec/new_dynarec.h"
 #include "device/r4300/fpu.h"
 #include "device/r4300/cp0.h"
+#include "device/r4300/cached_interp.h"
 #include "device/r4300/interrupt.h"
 #include "wasm3.h"
 #ifdef __EMSCRIPTEN__
@@ -29,6 +30,7 @@ static struct wasm_dynarec_block *g_blocks = NULL;
 static size_t g_blocks_count = 0;
 
 static struct r4300_core *g_current_cpu = NULL;
+unsigned int using_tlb = 0;
 
 static void wasm_dynarec_update_count(struct r4300_core *r4300,
                                       uint32_t start_pc)
@@ -47,6 +49,143 @@ static void wasm_dynarec_update_count(struct r4300_core *r4300,
     cp0_regs[CP0_COUNT_REG] += count;
     *cycle_count += count;
     cp0->last_addr = pc;
+}
+
+static void wasm_tlb_unmap(struct tlb* tlb, size_t entry)
+{
+    unsigned int i;
+    const struct tlb_entry* e = &tlb->entries[entry];
+
+    if (e->v_even)
+    {
+        for (i=e->start_even; i<e->end_even; i += 0x1000)
+            tlb->LUT_r[i>>12] = 0;
+        if (e->d_even)
+            for (i=e->start_even; i<e->end_even; i += 0x1000)
+                tlb->LUT_w[i>>12] = 0;
+    }
+
+    if (e->v_odd)
+    {
+        for (i=e->start_odd; i<e->end_odd; i += 0x1000)
+            tlb->LUT_r[i>>12] = 0;
+        if (e->d_odd)
+            for (i=e->start_odd; i<e->end_odd; i += 0x1000)
+                tlb->LUT_w[i>>12] = 0;
+    }
+}
+
+static void wasm_tlb_map(struct tlb* tlb, size_t entry)
+{
+    unsigned int i;
+    const struct tlb_entry* e = &tlb->entries[entry];
+
+    if (e->v_even)
+    {
+        if (e->start_even < e->end_even &&
+            !(e->start_even >= 0x80000000 && e->end_even < 0xC0000000) &&
+            e->phys_even < 0x20000000)
+        {
+            for (i=e->start_even;i<e->end_even;i+=0x1000)
+                tlb->LUT_r[i>>12] = UINT32_C(0x80000000) | (e->phys_even + (i - e->start_even) + 0xFFF);
+            if (e->d_even)
+                for (i=e->start_even;i<e->end_even;i+=0x1000)
+                    tlb->LUT_w[i>>12] = UINT32_C(0x80000000) | (e->phys_even + (i - e->start_even) + 0xFFF);
+        }
+    }
+
+    if (e->v_odd)
+    {
+        if (e->start_odd < e->end_odd &&
+            !(e->start_odd >= 0x80000000 && e->end_odd < 0xC0000000) &&
+            e->phys_odd < 0x20000000)
+        {
+            for (i=e->start_odd;i<e->end_odd;i+=0x1000)
+                tlb->LUT_r[i>>12] = UINT32_C(0x80000000) | (e->phys_odd + (i - e->start_odd) + 0xFFF);
+            if (e->d_odd)
+                for (i=e->start_odd;i<e->end_odd;i+=0x1000)
+                    tlb->LUT_w[i>>12] = UINT32_C(0x80000000) | (e->phys_odd + (i - e->start_odd) + 0xFFF);
+        }
+    }
+}
+
+static void wasm_tlb_write(struct r4300_core *r4300, unsigned int idx)
+{
+    uint32_t *cp0_regs = r4300->new_dynarec_hot_state.cp0_regs;
+
+    wasm_tlb_unmap(&r4300->cp0.tlb, idx);
+
+    r4300->cp0.tlb.entries[idx].g = (cp0_regs[CP0_ENTRYLO0_REG] & cp0_regs[CP0_ENTRYLO1_REG] & 1);
+    r4300->cp0.tlb.entries[idx].pfn_even = (cp0_regs[CP0_ENTRYLO0_REG] & UINT32_C(0x3FFFFFC0)) >> 6;
+    r4300->cp0.tlb.entries[idx].pfn_odd  = (cp0_regs[CP0_ENTRYLO1_REG] & UINT32_C(0x3FFFFFC0)) >> 6;
+    r4300->cp0.tlb.entries[idx].c_even   = (cp0_regs[CP0_ENTRYLO0_REG] & UINT32_C(0x38)) >> 3;
+    r4300->cp0.tlb.entries[idx].c_odd    = (cp0_regs[CP0_ENTRYLO1_REG] & UINT32_C(0x38)) >> 3;
+    r4300->cp0.tlb.entries[idx].d_even   = (cp0_regs[CP0_ENTRYLO0_REG] & UINT32_C(0x4)) >> 2;
+    r4300->cp0.tlb.entries[idx].d_odd    = (cp0_regs[CP0_ENTRYLO1_REG] & UINT32_C(0x4)) >> 2;
+    r4300->cp0.tlb.entries[idx].v_even   = (cp0_regs[CP0_ENTRYLO0_REG] & UINT32_C(0x2)) >> 1;
+    r4300->cp0.tlb.entries[idx].v_odd    = (cp0_regs[CP0_ENTRYLO1_REG] & UINT32_C(0x2)) >> 1;
+    r4300->cp0.tlb.entries[idx].asid     = (cp0_regs[CP0_ENTRYHI_REG] & UINT32_C(0xFF));
+    r4300->cp0.tlb.entries[idx].vpn2     = (cp0_regs[CP0_ENTRYHI_REG] & UINT32_C(0xFFFFE000)) >> 13;
+    r4300->cp0.tlb.entries[idx].mask     = (cp0_regs[CP0_PAGEMASK_REG] & UINT32_C(0x1FFE000)) >> 13;
+
+    r4300->cp0.tlb.entries[idx].start_even = r4300->cp0.tlb.entries[idx].vpn2 << 13;
+    r4300->cp0.tlb.entries[idx].end_even = r4300->cp0.tlb.entries[idx].start_even +
+        (r4300->cp0.tlb.entries[idx].mask << 12) + UINT32_C(0xFFF);
+    r4300->cp0.tlb.entries[idx].phys_even = r4300->cp0.tlb.entries[idx].pfn_even << 12;
+
+    r4300->cp0.tlb.entries[idx].start_odd = r4300->cp0.tlb.entries[idx].end_even + 1;
+    r4300->cp0.tlb.entries[idx].end_odd = r4300->cp0.tlb.entries[idx].start_odd +
+        (r4300->cp0.tlb.entries[idx].mask << 12) + UINT32_C(0xFFF);
+    r4300->cp0.tlb.entries[idx].phys_odd = r4300->cp0.tlb.entries[idx].pfn_odd << 12;
+
+    wasm_tlb_map(&r4300->cp0.tlb, idx);
+}
+
+static void wasm_cp0_update_count(struct r4300_core *r4300)
+{
+    struct cp0 *cp0 = &r4300->cp0;
+    uint32_t *cp0_regs = r4300->new_dynarec_hot_state.cp0_regs;
+    uint32_t pc = r4300->new_dynarec_hot_state.pcaddr;
+    uint32_t count = ((pc - cp0->last_addr) >> 2) * cp0->count_per_op;
+    if (cp0->count_per_op_denom_pot) {
+        count += (1U << cp0->count_per_op_denom_pot) - 1;
+        count >>= cp0->count_per_op_denom_pot;
+    }
+    cp0_regs[CP0_COUNT_REG] += count;
+    r4300->new_dynarec_hot_state.cycle_count += count;
+    cp0->last_addr = pc;
+}
+
+static void wasm_tlbp(struct r4300_core *r4300)
+{
+    uint32_t *cp0_regs = r4300->new_dynarec_hot_state.cp0_regs;
+    cp0_regs[CP0_INDEX_REG] |= UINT32_C(0x80000000);
+    for (int i = 0; i < 32; ++i) {
+        if (((r4300->cp0.tlb.entries[i].vpn2 & (~r4300->cp0.tlb.entries[i].mask)) ==
+                (((cp0_regs[CP0_ENTRYHI_REG] & UINT32_C(0xFFFFE000)) >> 13) & (~r4300->cp0.tlb.entries[i].mask))) &&
+            (r4300->cp0.tlb.entries[i].g || r4300->cp0.tlb.entries[i].asid == (cp0_regs[CP0_ENTRYHI_REG] & UINT32_C(0xFF)))) {
+            cp0_regs[CP0_INDEX_REG] = i;
+            break;
+        }
+    }
+}
+
+static void wasm_tlbr(struct r4300_core *r4300)
+{
+    uint32_t *cp0_regs = r4300->new_dynarec_hot_state.cp0_regs;
+    int index = cp0_regs[CP0_INDEX_REG] & UINT32_C(0x1F);
+    cp0_regs[CP0_PAGEMASK_REG] = r4300->cp0.tlb.entries[index].mask << 13;
+    cp0_regs[CP0_ENTRYHI_REG] = (r4300->cp0.tlb.entries[index].vpn2 << 13) | r4300->cp0.tlb.entries[index].asid;
+    cp0_regs[CP0_ENTRYLO0_REG] = (r4300->cp0.tlb.entries[index].pfn_even << 6) |
+        (r4300->cp0.tlb.entries[index].c_even << 3) |
+        (r4300->cp0.tlb.entries[index].d_even << 2) |
+        (r4300->cp0.tlb.entries[index].v_even << 1) |
+        r4300->cp0.tlb.entries[index].g;
+    cp0_regs[CP0_ENTRYLO1_REG] = (r4300->cp0.tlb.entries[index].pfn_odd << 6) |
+        (r4300->cp0.tlb.entries[index].c_odd << 3) |
+        (r4300->cp0.tlb.entries[index].d_odd << 2) |
+        (r4300->cp0.tlb.entries[index].v_odd << 1) |
+        r4300->cp0.tlb.entries[index].g;
 }
 
 #ifndef __EMSCRIPTEN__
@@ -107,6 +246,49 @@ m3ApiRawFunction(wasm_dynarec_write_dword)
         r4300_write_aligned_dword(g_current_cpu, addr, value, mask);
     m3ApiSuccess();
 }
+
+m3ApiRawFunction(wasm_dynarec_tlbp)
+{
+    m3ApiGetArg(uint32_t, base);
+    (void)base;
+    if (g_current_cpu)
+        wasm_tlbp(g_current_cpu);
+    m3ApiSuccess();
+}
+
+m3ApiRawFunction(wasm_dynarec_tlbr)
+{
+    m3ApiGetArg(uint32_t, base);
+    (void)base;
+    if (g_current_cpu)
+        wasm_tlbr(g_current_cpu);
+    m3ApiSuccess();
+}
+
+m3ApiRawFunction(wasm_dynarec_tlbwi)
+{
+    m3ApiGetArg(uint32_t, base);
+    (void)base;
+    if (g_current_cpu) {
+        wasm_tlb_write(g_current_cpu, g_current_cpu->new_dynarec_hot_state.cp0_regs[CP0_INDEX_REG] & 0x3F);
+        invalidate_cached_code_wasm_dynarec(g_current_cpu, 0, 0);
+    }
+    m3ApiSuccess();
+}
+
+m3ApiRawFunction(wasm_dynarec_tlbwr)
+{
+    m3ApiGetArg(uint32_t, base);
+    (void)base;
+    if (g_current_cpu) {
+        uint32_t *cp0_regs = g_current_cpu->new_dynarec_hot_state.cp0_regs;
+        wasm_cp0_update_count(g_current_cpu);
+        cp0_regs[CP0_RANDOM_REG] = (cp0_regs[CP0_COUNT_REG]/g_current_cpu->cp0.count_per_op % (32 - cp0_regs[CP0_WIRED_REG])) + cp0_regs[CP0_WIRED_REG];
+        wasm_tlb_write(g_current_cpu, cp0_regs[CP0_RANDOM_REG]);
+        invalidate_cached_code_wasm_dynarec(g_current_cpu, 0, 0);
+    }
+    m3ApiSuccess();
+}
 #else
 EMSCRIPTEN_KEEPALIVE
 void wasm_dynarec_dispatch_import(uint32_t base, uint32_t addr)
@@ -152,6 +334,45 @@ void wasm_dynarec_write_dword(uint32_t base, uint32_t addr,
     (void)base;
     if (g_current_cpu)
         r4300_write_aligned_dword(g_current_cpu, addr, value, mask);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void wasm_dynarec_tlbp(uint32_t base)
+{
+    (void)base;
+    if (g_current_cpu)
+        wasm_tlbp(g_current_cpu);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void wasm_dynarec_tlbr(uint32_t base)
+{
+    (void)base;
+    if (g_current_cpu)
+        wasm_tlbr(g_current_cpu);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void wasm_dynarec_tlbwi(uint32_t base)
+{
+    (void)base;
+    if (g_current_cpu) {
+        wasm_tlb_write(g_current_cpu, g_current_cpu->new_dynarec_hot_state.cp0_regs[CP0_INDEX_REG] & 0x3F);
+        invalidate_cached_code_wasm_dynarec(g_current_cpu, 0, 0);
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE
+void wasm_dynarec_tlbwr(uint32_t base)
+{
+    (void)base;
+    if (g_current_cpu) {
+        uint32_t *cp0_regs = g_current_cpu->new_dynarec_hot_state.cp0_regs;
+        wasm_cp0_update_count(g_current_cpu);
+        cp0_regs[CP0_RANDOM_REG] = (cp0_regs[CP0_COUNT_REG]/g_current_cpu->cp0.count_per_op % (32 - cp0_regs[CP0_WIRED_REG])) + cp0_regs[CP0_WIRED_REG];
+        wasm_tlb_write(g_current_cpu, cp0_regs[CP0_RANDOM_REG]);
+        invalidate_cached_code_wasm_dynarec(g_current_cpu, 0, 0);
+    }
 }
 #endif
 
@@ -200,7 +421,11 @@ EM_JS(void, wasm_dynarec_exec_js,
       mem_read32: Module['_wasm_dynarec_read_word'],
       mem_read64: Module['_wasm_dynarec_read_dword'],
       mem_write32: Module['_wasm_dynarec_write_word'],
-      mem_write64: Module['_wasm_dynarec_write_dword']
+      mem_write64: Module['_wasm_dynarec_write_dword'],
+      tlbp: Module['_wasm_dynarec_tlbp'],
+      tlbr: Module['_wasm_dynarec_tlbr'],
+      tlbwi: Module['_wasm_dynarec_tlbwi'],
+      tlbwr: Module['_wasm_dynarec_tlbwr']
     }
   };
 
@@ -967,6 +1192,38 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                    rt, rd,
                    (size_t)GPR_OFFSET(rt),
                    (size_t)CP0_OFFSET(rd));
+            break;
+        case 0x10:
+            switch (funct) {
+            case 0x01:
+                append(buf, size,
+                       "    ;; tlbr\n"
+                       "    local.get $base\n"
+                       "    call $tlbr\n");
+                break;
+            case 0x02:
+                append(buf, size,
+                       "    ;; tlbwi\n"
+                       "    local.get $base\n"
+                       "    call $tlbwi\n");
+                break;
+            case 0x06:
+                append(buf, size,
+                       "    ;; tlbwr\n"
+                       "    local.get $base\n"
+                       "    call $tlbwr\n");
+                break;
+            case 0x08:
+                append(buf, size,
+                       "    ;; tlbp\n"
+                       "    local.get $base\n"
+                       "    call $tlbp\n");
+                break;
+            default:
+                append(buf, size,
+                       "    ;; unsupported TLB subop %u\n", funct);
+                break;
+            }
             break;
         default:
             append(buf, size,
@@ -1836,6 +2093,10 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
            "  (import \"env\" \"mem_read64\" (func $mem_read64 (param i32 i32) (result i64)))\n"
            "  (import \"env\" \"mem_write32\" (func $mem_write32 (param i32 i32 i32 i32)))\n"
            "  (import \"env\" \"mem_write64\" (func $mem_write64 (param i32 i32 i64 i64)))\n"
+           "  (import \"env\" \"tlbp\" (func $tlbp (param i32)))\n"
+           "  (import \"env\" \"tlbr\" (func $tlbr (param i32)))\n"
+           "  (import \"env\" \"tlbwi\" (func $tlbwi (param i32)))\n"
+           "  (import \"env\" \"tlbwr\" (func $tlbwr (param i32)))\n"
            "  (memory %u)\n"
            "  (func $block_%x (param $base i32) (local $t i64) (local $tmp i32)\n",
            block->mem_pages, address);
@@ -2314,6 +2575,10 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
     m3_LinkRawFunction(module, "env", "mem_read64", "I(ii)", wasm_dynarec_read_dword);
     m3_LinkRawFunction(module, "env", "mem_write32", "v(iiii)", wasm_dynarec_write_word);
     m3_LinkRawFunction(module, "env", "mem_write64", "v(iiII)", wasm_dynarec_write_dword);
+    m3_LinkRawFunction(module, "env", "tlbp", "v(i)", wasm_dynarec_tlbp);
+    m3_LinkRawFunction(module, "env", "tlbr", "v(i)", wasm_dynarec_tlbr);
+    m3_LinkRawFunction(module, "env", "tlbwi", "v(i)", wasm_dynarec_tlbwi);
+    m3_LinkRawFunction(module, "env", "tlbwr", "v(i)", wasm_dynarec_tlbwr);
 
     IM3Function entry;
     m3_FindFunction(&entry, runtime, "entry");

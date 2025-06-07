@@ -160,6 +160,10 @@ Memory access instructions call the core memory subsystem via imported callbacks
 | TRUNC_L_S |
 | TRUNC_W_D |
 | TRUNC_W_S |
+| TLBP |
+| TLBR |
+| TLBWI |
+| TLBWR |
 
 ## Not yet implemented
 
@@ -213,8 +217,4 @@ Memory access instructions call the core memory subsystem via imported callbacks
 | RESERVED_COP2 |
 | SQRT_D |
 | SQRT_S |
-| TLBP |
-| TLBR |
-| TLBWI |
-| TLBWR |
 
