@@ -261,7 +261,9 @@ START_TEST(test_opcode_scenarios)
         0x00431822
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memcpy(&expect_state, &init_state, sizeof(expect_state));
+    expect_state.hot.pcaddr = 0x80000010;
     expect_state.hot.regs[2] = 8;
     expect_state.hot.regs[3] = 3;
     run_asm_test("arith", arith_block, sizeof(arith_block)/4, &init_state, &expect_state);
@@ -273,6 +275,7 @@ START_TEST(test_opcode_scenarios)
         0x20030002
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[3] = 2;
     expect_state.hot.pcaddr = 0x80000010;
@@ -297,6 +300,7 @@ START_TEST(test_more_opcodes)
         0x00088103  /* sra t8, t0, 4 */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8]  = 0xff00;
     expect_state.hot.regs[9]  = 0xf0;
@@ -323,6 +327,7 @@ START_TEST(test_more_opcodes)
         0x00006810  /* mfhi t5 */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8]  = 10;
     expect_state.hot.regs[9]  = 3;
@@ -346,6 +351,7 @@ START_TEST(test_more_opcodes)
         0x00006810  /* mfhi t5 */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8]  = (uint64_t)-10; /* t0 */
     expect_state.hot.regs[9]  = 3;             /* t1 */
@@ -369,6 +375,7 @@ START_TEST(test_more_opcodes)
         0x00005810  /* mfhi t3 */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8]  = 0x80000000ULL; /* t0 */
     expect_state.hot.regs[9]  = 0x80000000ULL; /* t1 */
@@ -388,6 +395,7 @@ START_TEST(test_more_opcodes)
         0x00005810  /* mfhi t3 */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8]  = 10;            /* t0 */
     expect_state.hot.regs[9]  = (uint64_t)-3;  /* t1 */
@@ -411,6 +419,7 @@ START_TEST(test_more_opcodes)
         0x2d2f0008  /* sltiu t7, t1, 8 */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8]  = 5;
     expect_state.hot.regs[9]  = 10;
@@ -432,6 +441,7 @@ START_TEST(test_more_opcodes)
         0x00000000  /* nop */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[4]  = 1;
     expect_state.hot.regs[5]  = 2;
@@ -454,6 +464,7 @@ START_TEST(test_unsigned_ops)
         0x00000000  /* nop */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8] = 1;  /* t0 */
     expect_state.hot.regs[9] = 2;  /* t1 */
@@ -461,6 +472,7 @@ START_TEST(test_unsigned_ops)
     expect_state.hot.regs[11] = 1; /* t3 */
     expect_state.hot.regs[12] = 4; /* t4 */
     expect_state.hot.regs[13] = 1; /* t5 */
+    expect_state.hot.pcaddr = 0x8000001c;
     run_asm_test("unsigned", block, sizeof(block)/4, &init_state, &expect_state);
 }
 END_TEST
@@ -500,6 +512,7 @@ START_TEST(test_memory_ops)
         0x00000000  /* nop */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8]  = 0x2000;                 /* t0 */
     expect_state.hot.regs[9]  = 0x1234567887654321ULL;  /* t1 */
@@ -516,6 +529,7 @@ START_TEST(test_memory_ops)
     expect_state.hot.regs[20] = 0xffffffffffffffffULL;  /* s4 */
     expect_state.hot.regs[21] = 0xffffffff;             /* s5 */
     expect_state.hot.regs[22] = 0x1234567887654321ULL;  /* s6 */
+    expect_state.hot.pcaddr = 0x80000074;
     run_asm_test("memory", mem_block, sizeof(mem_block)/4, &init_state, &expect_state);
 }
 END_TEST
@@ -542,6 +556,7 @@ START_TEST(test_unaligned_ops)
         0x00000000  /* nop */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8]  = 0x2000;      /* t0 */
     expect_state.hot.regs[9]  = 0x89abcdef;  /* t1 */
@@ -549,6 +564,7 @@ START_TEST(test_unaligned_ops)
     expect_state.hot.regs[10] = 0x01234567; /* t2 */
     expect_state.hot.regs[11] = 0x01234567; /* t3 */
     expect_state.hot.regs[12] = 1;           /* t4 after sc */
+    expect_state.hot.pcaddr = 0x80000044;
     run_asm_test("unaligned", block, sizeof(block)/4, &init_state, &expect_state);
 }
 END_TEST
@@ -565,6 +581,7 @@ START_TEST(test_delay_slots)
         0x00000000  /* nop */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8] = 0;  /* t0 */
     expect_state.hot.regs[9] = 15; /* t1 */
@@ -583,6 +600,7 @@ START_TEST(test_delay_slots)
         0x00000000  /* nop */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8] = 1;  /* t0 */
     expect_state.hot.regs[9] = 4;  /* t1 after delay slot and jump */
@@ -603,6 +621,7 @@ START_TEST(test_branch_likely)
         0x00000000  /* nop target */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8]  = 1; /* t0 */
     expect_state.hot.regs[9]  = 2; /* t1 */
@@ -620,6 +639,7 @@ START_TEST(test_branch_likely)
         0x00000000  /* nop target */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8]  = 1; /* t0 */
     expect_state.hot.regs[9]  = 1; /* t1 */
@@ -636,6 +656,7 @@ START_TEST(test_branch_likely)
         0x00000000  /* nop target */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8] = 1; /* t0 */
     expect_state.hot.regs[9] = 0; /* t1 remains 0 */
@@ -651,6 +672,7 @@ START_TEST(test_branch_likely)
         0x00000000  /* nop target */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8] = 0; /* t0 */
     expect_state.hot.regs[9] = 0; /* t1 remains 0 */
@@ -666,6 +688,7 @@ START_TEST(test_branch_likely)
         0x00000000  /* nop target */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8] = 1; /* t0 */
     expect_state.hot.regs[9] = 0; /* t1 remains 0 */
@@ -681,6 +704,7 @@ START_TEST(test_branch_likely)
         0x00000000  /* nop target */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8] = (uint64_t)-1; /* t0 */
     expect_state.hot.regs[9] = 0;           /* t1 remains 0 */
@@ -696,6 +720,7 @@ START_TEST(test_branch_likely)
         0x00000000  /* nop target */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8]  = 0;                      /* t0 */
     expect_state.hot.regs[9]  = 5;                      /* t1 */
@@ -713,6 +738,7 @@ START_TEST(test_branch_likely)
         0x00000000  /* nop */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8] = (uint64_t)-1; /* t0 */
     expect_state.hot.regs[9] = 7;            /* t1 */
@@ -730,6 +756,7 @@ START_TEST(test_branch_likely)
         0x00000000  /* nop */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8]  = 0;                       /* t0 */
     expect_state.hot.regs[9]  = 7;                       /* t1 */
@@ -746,6 +773,7 @@ START_TEST(test_branch_likely)
         0x00000000  /* nop target */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     init_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
     expect_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
@@ -763,6 +791,7 @@ START_TEST(test_branch_likely)
         0x00000000
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     init_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
     expect_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
@@ -779,6 +808,7 @@ START_TEST(test_branch_likely)
         0x00000000  /* nop target */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     init_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
     expect_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
@@ -795,6 +825,7 @@ START_TEST(test_branch_likely)
         0x00000000
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     init_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
     expect_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
@@ -820,12 +851,14 @@ START_TEST(test_cp0_moves)
         0x00000000  /* nop */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8]  = 0x12345678;
     expect_state.hot.regs[9]  = 0x11112222;
     expect_state.hot.regs[10] = 0x12345678;
     expect_state.hot.regs[11] = 0x11112222;
     expect_state.hot.cp0_regs[0]   = 0x11112222;
+    expect_state.hot.pcaddr = 0x80000024;
     run_asm_test("cp0_moves", block, sizeof(block)/4, &init_state, &expect_state);
 }
 END_TEST
@@ -851,6 +884,7 @@ START_TEST(test_cp1_moves)
         0x00000000  /* nop */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8]  = 0x12345678;      /* t0 */
     expect_state.hot.regs[9]  = 0x12345678;      /* t1 */
@@ -861,6 +895,7 @@ START_TEST(test_cp1_moves)
     for (int i = 0; i < 3; i++)
         expect_state.cp1[i] = 0x12345678ULL;
     expect_state.cp1[3] = 0x1234567800000000ULL;
+    expect_state.hot.pcaddr = 0x80000040;
     run_asm_test("cp1_moves", block, sizeof(block)/4, &init_state, &expect_state);
 }
 END_TEST
@@ -885,11 +920,13 @@ START_TEST(test_cp1_arith)
         0x00000000  /* nop */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     init_state.cp1[0]  = 0x3f800000ULL;           /* 1.0f */
     init_state.cp1[1]  = 0x40000000ULL;           /* 2.0f */
     init_state.cp1[10] = 0x3ff8000000000000ULL;   /* 1.5 */
     init_state.cp1[11] = 0x4000000000000000ULL;   /* 2.0 */
     memcpy(&expect_state, &init_state, sizeof(expect_state));
+    expect_state.hot.pcaddr = 0x8000003c;
     expect_state.cp1[2]  = 0x40400000ULL;         /* 3.0f */
     expect_state.cp1[3]  = 0xbf800000ULL;         /* -1.0f */
     expect_state.cp1[4]  = 0x40000000ULL;         /* 2.0f */
@@ -928,10 +965,12 @@ START_TEST(test_shift_64)
         0x00000000  /* nop */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     init_state.hot.regs[8] = 0x123456789abcdef0ULL; /* t0 */
     init_state.hot.regs[9] = 0;                     /* t1 overwritten later */
     memcpy(&expect_state, &init_state, sizeof(expect_state));
+    expect_state.hot.pcaddr = 0x8000003c;
     expect_state.hot.regs[9]  = 8;                  /* t1 */
     expect_state.hot.regs[10] = 81985529216486895ULL;  /* t2 */
     expect_state.hot.regs[11] = 81985529216486895ULL;  /* t3 */
@@ -978,6 +1017,7 @@ START_TEST(test_muldiv_64)
         0x00000000  /* nop */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8]  = 10;                                  /* t0 */
     expect_state.hot.regs[9]  = 3;                                   /* t1 */
@@ -1001,6 +1041,7 @@ START_TEST(test_muldiv_64)
     expect_state.hot.regs[27] = 18446744073709551606ULL;             /* k1 */
     expect_state.hot.hi = 18446744073709551606ULL;                   /* final HI */
     expect_state.hot.lo = 0;                                        /* final LO */
+    expect_state.hot.pcaddr = 0x80000074;
     run_asm_test("muldiv_64", block, sizeof(block)/4, &init_state, &expect_state);
 }
 END_TEST
@@ -1022,11 +1063,13 @@ START_TEST(test_ldl_ldr)
         0x00000000  /* nop */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8]  = 0x2000;                                /* t0 */
     expect_state.hot.regs[9]  = 0x1122334455667788ULL;                 /* t1 */
     expect_state.hot.regs[10] = 0x0;                                   /* t2 */
     expect_state.hot.regs[11] = 0x0;                                   /* t3 */
+    expect_state.hot.pcaddr = 0x80000030;
     run_asm_test("ldl_ldr", block, sizeof(block)/4, &init_state, &expect_state);
 }
 END_TEST
@@ -1049,6 +1092,7 @@ START_TEST(test_complex_control_flow)
         0x00000000  /* nop (delay) */
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8]  = 1;               /* t0 */
     expect_state.hot.regs[9]  = 1;               /* t1 */
@@ -1077,6 +1121,7 @@ START_TEST(test_fp_conversions)
         0x00000000
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     {
         float val = 1.5f;
         memcpy(&init_state.cp1[0], &val, sizeof(val));
@@ -1094,6 +1139,7 @@ START_TEST(test_fp_conversions)
     expect_state.cp1[9]  = 0x000000003f800000ULL; /* float 1.0 */
     expect_state.cp1[10] = 0x3ff0000000000000ULL; /* double 1.0 */
     expect_state.cp1[11] = 0x3ff0000000000000ULL; /* double 1.0 */
+    expect_state.hot.pcaddr = 0x8000002c;
     run_asm_test("fp_conv", block, sizeof(block)/4, &init_state, &expect_state);
 }
 END_TEST
@@ -1108,6 +1154,7 @@ START_TEST(test_fp_ceil)
         0x00000000
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     {
         float val_s = 1.2f;
         memcpy(&init_state.cp1[0], &val_s, sizeof(val_s));
@@ -1123,6 +1170,7 @@ START_TEST(test_fp_ceil)
     expect_state.cp1[7] = 0x0000000000000002ULL; /* ceil.l.d result */
     expect_state.cp1[8] = 0x0000000000000002ULL; /* ceil.w.s result */
     expect_state.cp1[9] = 0x0000000000000002ULL; /* ceil.w.d result */
+    expect_state.hot.pcaddr = 0x80000014;
     run_asm_test("fp_ceil", block, sizeof(block)/4, &init_state, &expect_state);
 }
 END_TEST
@@ -1137,6 +1185,7 @@ START_TEST(test_fp_floor)
         0x00000000
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     {
         float val_s = 1.8f;
         memcpy(&init_state.cp1[0], &val_s, sizeof(val_s));
@@ -1152,6 +1201,7 @@ START_TEST(test_fp_floor)
     expect_state.cp1[7] = 0x0000000000000001ULL; /* floor.l.d result */
     expect_state.cp1[8] = 0x0000000000000001ULL; /* floor.w.s result */
     expect_state.cp1[9] = 0x0000000000000001ULL; /* floor.w.d result */
+    expect_state.hot.pcaddr = 0x80000014;
     run_asm_test("fp_floor", block, sizeof(block)/4, &init_state, &expect_state);
 }
 END_TEST
@@ -1166,6 +1216,7 @@ START_TEST(test_fp_round)
         0x00000000
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     {
         float val_s = 1.6f;
         memcpy(&init_state.cp1[0], &val_s, sizeof(val_s));
@@ -1181,6 +1232,7 @@ START_TEST(test_fp_round)
     expect_state.cp1[7] = 0x0000000000000002ULL; /* round.l.d result */
     expect_state.cp1[8] = 0x0000000000000002ULL; /* round.w.s result */
     expect_state.cp1[9] = 0x0000000000000002ULL; /* round.w.d result */
+    expect_state.hot.pcaddr = 0x80000014;
     run_asm_test("fp_round", block, sizeof(block)/4, &init_state, &expect_state);
 }
 END_TEST
@@ -1195,6 +1247,7 @@ START_TEST(test_fp_trunc)
         0x00000000
     };
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     {
         float val_s = -1.8f;
         memcpy(&init_state.cp1[0], &val_s, sizeof(val_s));
@@ -1210,6 +1263,7 @@ START_TEST(test_fp_trunc)
     expect_state.cp1[7] = 0xffffffffffffffffULL; /* trunc.l.d result */
     expect_state.cp1[8] = 0x00000000ffffffffULL; /* trunc.w.s result */
     expect_state.cp1[9] = 0x00000000ffffffffULL; /* trunc.w.d result */
+    expect_state.hot.pcaddr = 0x80000014;
     run_asm_test("fp_trunc", block, sizeof(block)/4, &init_state, &expect_state);
 }
 END_TEST
@@ -1309,17 +1363,18 @@ START_TEST(test_fibonacci_c)
     free(buf);
 
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     init_state.hot.regs[4] = 10;     /* argument n */
     /* Use a high memory address so the dynarec can use fast memory access. */
     init_state.hot.regs[29] = 0x80002000; /* stack pointer */
-    init_state.hot.pcaddr = 0x80000000;
     expect_state.hot.regs[2] = host_fib(10);
     expect_state.hot.regs[3] = host_fib(10);
     expect_state.hot.regs[4] = init_state.hot.regs[4];
     expect_state.hot.regs[29] = init_state.hot.regs[29];
-    /* dynarec does not preserve pc after returning */
-    expect_state.hot.pcaddr = 0;
+    init_state.hot.regs[31] = 0xffffffff80000080ULL; /* return address */
+    expect_state.hot.regs[31] = init_state.hot.regs[31];
+    expect_state.hot.pcaddr = 0x80000080;
 
     run_asm_test("fib_c", code, count, &init_state, &expect_state);
 
@@ -1343,11 +1398,15 @@ START_TEST(test_stack_rw)
     };
 
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     init_state.hot.regs[29] = 0x80002000; /* stack pointer */
+    init_state.hot.regs[31] = 0xffffffff80000020ULL; /* return address */
     expect_state.hot.regs[2] = 0x1234;    /* loaded value */
     expect_state.hot.regs[8] = 0x1234;    /* t0 preserved */
     expect_state.hot.regs[29] = init_state.hot.regs[29];
+    expect_state.hot.regs[31] = init_state.hot.regs[31];
+    expect_state.hot.pcaddr   = 0x80000020;
 
     run_asm_test("stack_rw", block, sizeof(block)/4, &init_state, &expect_state);
 }
@@ -1370,13 +1429,17 @@ START_TEST(test_stack_offset)
     };
 
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     init_state.hot.regs[29] = 0x80002000; /* stack pointer */
+    init_state.hot.regs[31] = 0xffffffff80000030ULL; /* return address */
     expect_state.hot.regs[2] = 0x1111;
     expect_state.hot.regs[3] = 0x2222;
     expect_state.hot.regs[8] = 0x1111; /* t0 preserved */
     expect_state.hot.regs[9] = 0x2222; /* t1 preserved */
     expect_state.hot.regs[29] = init_state.hot.regs[29];
+    expect_state.hot.regs[31] = init_state.hot.regs[31];
+    expect_state.hot.pcaddr   = 0x80000030;
 
     run_asm_test("stack_offset", block, sizeof(block)/4, &init_state, &expect_state);
 }
@@ -1403,15 +1466,16 @@ START_TEST(test_loop_stack)
     };
 
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
     init_state.hot.regs[29] = 0x80002000; /* stack pointer */
-    init_state.hot.pcaddr = 0x80000000;
+    init_state.hot.regs[31] = 0xffffffff80000040ULL; /* return address */
     expect_state.hot.regs[2] = 5;         /* return value */
     expect_state.hot.regs[8] = 5;         /* t0 */
     expect_state.hot.regs[9] = 5;         /* t1 */
     expect_state.hot.regs[29] = init_state.hot.regs[29];
-    /* PC after jr ra is implementation defined; ignore for now */
-    expect_state.hot.pcaddr = 0;
+    expect_state.hot.regs[31] = init_state.hot.regs[31];
+    expect_state.hot.pcaddr   = 0x80000040;
 
     run_asm_test("loop_stack", block, sizeof(block)/4, &init_state, &expect_state);
 }
@@ -1432,13 +1496,17 @@ START_TEST(test_slti_sign)
     };
 
     memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
     memset(&expect_state, 0, sizeof(expect_state));
+    init_state.hot.regs[31] = 0xffffffff80000028ULL; /* return address */
     expect_state.hot.regs[8]  = 5;  /* t0 final */
     expect_state.hot.regs[9]  = 1;  /* t1 */
     expect_state.hot.regs[10] = 1;  /* t2 */
     expect_state.hot.regs[11] = 0;  /* t3 */
     expect_state.hot.regs[12] = 0;  /* t4 */
     expect_state.hot.regs[13] = 1;  /* t5 */
+    expect_state.hot.regs[31] = init_state.hot.regs[31];
+    expect_state.hot.pcaddr   = 0x80000028;
 
     run_asm_test("slti_sign", block, sizeof(block)/4, &init_state, &expect_state);
 }
