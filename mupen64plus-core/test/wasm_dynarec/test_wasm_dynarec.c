@@ -1374,6 +1374,8 @@ START_TEST(test_fibonacci_c)
     expect_state.hot.regs[3] = host_fib(10);
     expect_state.hot.regs[4] = init_state.hot.regs[4];
     expect_state.hot.regs[29] = init_state.hot.regs[29];
+    expect_state.hot.hi = 0;
+    expect_state.hot.lo = 0;
     init_state.hot.regs[31] = 0xffffffff80000080ULL; /* return address */
     expect_state.hot.regs[31] = init_state.hot.regs[31];
     expect_state.hot.pcaddr = 0x80000080;
@@ -1441,6 +1443,7 @@ START_TEST(test_sumsq_c)
     expect_state.hot.regs[3] = 5; /* final loop counter */
     expect_state.hot.regs[4] = init_state.hot.regs[4];
     expect_state.hot.regs[29] = 0xffffffff80002000ULL;
+    expect_state.hot.hi = 0;
     expect_state.hot.lo = host_square(5);
     init_state.hot.regs[31] = 0xffffffff80000080ULL;
     expect_state.hot.regs[31] = init_state.hot.regs[31];
