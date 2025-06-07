@@ -254,6 +254,39 @@ START_TEST(test_compile_example)
 }
 END_TEST
 
+START_TEST(test_fp_nan)
+{
+    const uint32_t block[] = {
+        0x46010080,                     /* add.s f2, f0, f1 */
+        CVT_D_S(3, 0),                  /* cvt.d.s f3, f0 */
+        ENCODE_COP1(0x11, 11, 10, 12, 0x02), /* mul.d f12, f10, f11 */
+        ENCODE_COP1(0x10, 0, 0, 0, 0x32),    /* c.eq.s f0, f0 */
+        0x00000000
+    };
+
+    memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
+    init_state.hot.cp1_fcr31 = FCR31_CMP_BIT;
+    init_state.cp1[0]  = 0x7fc00000ULL;             /* NaN */
+    init_state.cp1[1]  = 0x7f800000ULL;             /* +Inf */
+    init_state.cp1[10] = 0x7ff0000000000000ULL;     /* +Inf */
+    init_state.cp1[11] = 0xfff0000000000000ULL;     /* -Inf */
+
+    memset(&expect_state, 0, sizeof(expect_state));
+    expect_state.cp1[0]  = init_state.cp1[0];
+    expect_state.cp1[1]  = init_state.cp1[1];
+    expect_state.cp1[2]  = 0x7fc00000ULL;           /* NaN */
+    expect_state.cp1[3]  = 0x7ff8000000000000ULL;   /* NaN as double */
+    expect_state.cp1[10] = init_state.cp1[10];
+    expect_state.cp1[11] = init_state.cp1[11];
+    expect_state.cp1[12] = 0xfff0000000000000ULL;   /* -Inf */
+    expect_state.hot.cp1_fcr31 = 0;
+    expect_state.hot.pcaddr = 0x80000014;
+
+    run_asm_test("fp_nan", block, sizeof(block)/4, &init_state, &expect_state);
+}
+END_TEST
+
 START_TEST(test_opcode_scenarios)
 {
     const uint32_t arith_block[] = {
@@ -1665,6 +1698,7 @@ Suite *create_suite(void)
     tcase_add_test(tc_core, test_fp_floor);
     tcase_add_test(tc_core, test_fp_round);
     tcase_add_test(tc_core, test_fp_trunc);
+    tcase_add_test(tc_core, test_fp_nan);
     tcase_add_test(tc_core, test_slti_sign);
     tcase_add_test(tc_core, test_stack_rw);
     tcase_add_test(tc_core, test_stack_offset);
