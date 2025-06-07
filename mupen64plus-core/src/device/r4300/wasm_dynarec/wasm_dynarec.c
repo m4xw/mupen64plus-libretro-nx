@@ -172,6 +172,19 @@ static struct wasm_dynarec_block *get_block(uint32_t address)
     return NULL;
 }
 
+/* Return remaining instruction count from an existing block that
+ * covers the given address, or 4 if no such block exists. */
+static size_t get_remaining_count(uint32_t address)
+{
+    for (size_t i = 0; i < g_blocks_count; ++i) {
+        uint32_t start = g_blocks[i].address;
+        uint32_t end = start + g_blocks[i].iw_count * 4;
+        if (address >= start && address < end)
+            return g_blocks[i].iw_count - (address - start) / 4;
+    }
+    return 4;
+}
+
 #ifdef __EMSCRIPTEN__
 EM_JS(void, wasm_dynarec_exec_js,
       (uintptr_t state_ptr, uintptr_t cp1_ptr, const char *wat,
@@ -2471,10 +2484,22 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
 
 void wasm_dynarec_init(struct r4300_core *r4300)
 {
-    (void)r4300;
-
     g_blocks = NULL;
     g_blocks_count = 0;
+
+    memset(&r4300->new_dynarec_hot_state, 0,
+           sizeof(r4300->new_dynarec_hot_state));
+
+#ifdef NEW_DYNAREC
+    r4300->new_dynarec_hot_state.pc =
+        &r4300->new_dynarec_hot_state.fake_pc;
+    r4300->new_dynarec_hot_state.fake_pc.f.r.rs =
+        &r4300->new_dynarec_hot_state.rs;
+    r4300->new_dynarec_hot_state.fake_pc.f.r.rt =
+        &r4300->new_dynarec_hot_state.rt;
+    r4300->new_dynarec_hot_state.fake_pc.f.r.rd =
+        &r4300->new_dynarec_hot_state.rd;
+#endif
 
     DebugMessage(M64MSG_INFO, "Initializing experimental WebAssembly dynarec");
 }
@@ -2649,9 +2674,10 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
             } else {
                 append(&block->wat, &block->wat_size,
                        "    local.get $base\n"
-                       "    call $block_%08x\n",
+                       "    call $block_%08x\n"
+                       "    return\n",
                        target);
-                if (target_count < 32) {
+                if (target != address && target_count < 32) {
                     int known = 0;
                     for (size_t ti = 0; ti < target_count; ++ti)
                         if (targets[ti] == target) { known = 1; break; }
@@ -2671,7 +2697,8 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
         case 0x16: /* BLEZL */
         case 0x17: /* BGTZL */
         {
-            uint32_t target = (address + (i + 1) * 4) + ((int16_t)imm << 2);
+            int32_t offset = ((int16_t)imm) << 2;
+            uint32_t target = address + (i + 1) * 4 + offset;
             uint32_t fallthrough = address + (i + 2) * 4;
             uint32_t delay = (i + 1 < count) ? iw[i + 1] : 0;
 
@@ -2714,27 +2741,28 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
                        target);
             } else {
                 append(&block->wat, &block->wat_size,
-                       "      local.get $base\n      call $block_%08x\n",
-                       target);
+                       "      i32.const %u\n"
+                       "      local.set $tmp\n"
+                       "      local.get $base\n"
+                       "      local.get $tmp\n"
+                       "      i32.store offset=%zu\n"
+                       "      return\n",
+                       target, (size_t)PC_OFFSET);
             }
             append(&block->wat, &block->wat_size, "    else\n");
             if (fallthrough < address || fallthrough >= address + count * 4) {
                 append(&block->wat, &block->wat_size,
                        "      local.get $base\n      call $block_%08x\n      return\n",
                        fallthrough);
-            } else {
-                append(&block->wat, &block->wat_size,
-                       "      local.get $base\n      call $block_%08x\n",
-                       fallthrough);
             }
             append(&block->wat, &block->wat_size, "    end\n");
-            if (target_count < 32) {
+            if (target != address && target_count < 32) {
                 int known = 0;
                 for (size_t ti = 0; ti < target_count; ++ti)
                     if (targets[ti] == target) { known = 1; break; }
                 if (!known) targets[target_count++] = target;
             }
-            if (target_count < 32) {
+            if (fallthrough != address && target_count < 32) {
                 int known = 0;
                 for (size_t ti = 0; ti < target_count; ++ti)
                     if (targets[ti] == fallthrough) { known = 1; break; }
@@ -2747,7 +2775,8 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
         case 0x01: /* REGIMM */
         {
             uint32_t rtcode = rt;
-            uint32_t target = (address + (i + 1) * 4) + ((int16_t)imm << 2);
+            int32_t offset = ((int16_t)imm) << 2;
+            uint32_t target = address + (i + 1) * 4 + offset;
             uint32_t fallthrough = address + (i + 2) * 4;
             uint32_t delay = (i + 1 < count) ? iw[i + 1] : 0;
             int likely = (rtcode == 0x02 || rtcode == 0x03 || rtcode == 0x12 || rtcode == 0x13);
@@ -2805,27 +2834,28 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
                            target);
                 } else {
                     append(&block->wat, &block->wat_size,
-                           "      call $block_%08x\n",
-                           target);
+                           "      i32.const %u\n"
+                           "      local.set $tmp\n"
+                           "      local.get $base\n"
+                           "      local.get $tmp\n"
+                           "      i32.store offset=%zu\n"
+                           "      return\n",
+                           target, (size_t)PC_OFFSET);
                 }
                 append(&block->wat, &block->wat_size, "    else\n");
-                if (fallthrough < address || fallthrough >= address + count * 4) {
-                    append(&block->wat, &block->wat_size,
-                           "      local.get $base\n      call $block_%08x\n      return\n",
-                           fallthrough);
-                } else {
-                    append(&block->wat, &block->wat_size,
-                           "      local.get $base\n      call $block_%08x\n",
-                           fallthrough);
-                }
+            if (fallthrough < address || fallthrough >= address + count * 4) {
+                append(&block->wat, &block->wat_size,
+                       "      local.get $base\n      call $block_%08x\n      return\n",
+                       fallthrough);
+            }
                 append(&block->wat, &block->wat_size, "    end\n");
-                if (target_count < 32) {
+                if (target != address && target_count < 32) {
                     int known = 0;
                     for (size_t ti = 0; ti < target_count; ++ti)
                         if (targets[ti] == target) { known = 1; break; }
                     if (!known) targets[target_count++] = target;
                 }
-                if (target_count < 32) {
+                if (fallthrough != address && target_count < 32) {
                     int known = 0;
                     for (size_t ti = 0; ti < target_count; ++ti)
                         if (targets[ti] == fallthrough) { known = 1; break; }
@@ -2840,7 +2870,8 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
         {
             if (rs == 0x08) {
                 uint32_t rtcode = rt & 0x3;
-                uint32_t target = (address + (i + 1) * 4) + ((int16_t)imm << 2);
+                int32_t offset = ((int16_t)imm) << 2;
+                uint32_t target = address + (i + 1) * 4 + offset;
                 uint32_t fallthrough = address + (i + 2) * 4;
                 uint32_t delay = (i + 1 < count) ? iw[i + 1] : 0;
 
@@ -2873,27 +2904,28 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
                            target);
                 } else {
                     append(&block->wat, &block->wat_size,
-                           "      local.get $base\n      call $block_%08x\n",
-                           target);
+                           "      i32.const %u\n"
+                           "      local.set $tmp\n"
+                           "      local.get $base\n"
+                           "      local.get $tmp\n"
+                           "      i32.store offset=%zu\n"
+                           "      return\n",
+                           target, (size_t)PC_OFFSET);
                 }
                 append(&block->wat, &block->wat_size, "    else\n");
                 if (fallthrough < address || fallthrough >= address + count * 4) {
                     append(&block->wat, &block->wat_size,
                            "      local.get $base\n      call $block_%08x\n      return\n",
                            fallthrough);
-                } else {
-                    append(&block->wat, &block->wat_size,
-                           "      local.get $base\n      call $block_%08x\n",
-                           fallthrough);
                 }
                 append(&block->wat, &block->wat_size, "    end\n");
-                if (target_count < 32) {
+                if (target != address && target_count < 32) {
                     int known = 0;
                     for (size_t ti = 0; ti < target_count; ++ti)
                         if (targets[ti] == target) { known = 1; break; }
                     if (!known) targets[target_count++] = target;
                 }
-                if (target_count < 32) {
+                if (fallthrough != address && target_count < 32) {
                     int known = 0;
                     for (size_t ti = 0; ti < target_count; ++ti)
                         if (targets[ti] == fallthrough) { known = 1; break; }
@@ -2952,7 +2984,7 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
             DebugMessage(M64MSG_WARNING, "No WebAssembly block for %08x; using interpreter", address);
             return;
         }
-        size_t cnt = block ? block->iw_count : 4;
+        size_t cnt = block ? block->iw_count : get_remaining_count(address);
         wasm_dynarec_recompile_block(r4300, iw, cnt, address);
         block = get_block(address);
         if (!block || !block->wat) {
