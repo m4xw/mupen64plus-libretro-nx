@@ -1,6 +1,6 @@
 CC ?= gcc
 WASM3_DIR = ../../../custom/dependencies/wasm3
-CFLAGS += -g -O0 -I../../src -I../../src/device/r4300 -I../../src/device/r4300/new_dynarec -I../../src/api -I../../..//libretro-common/include -I$(WASM3_DIR) -DNEW_DYNAREC=4
+CFLAGS += -g -O0 -I../../src -I../../src/device/r4300 -I../../src/device/r4300/new_dynarec -I../../src/api -I../../..//libretro-common/include -I../../../custom -I$(WASM3_DIR) -DNEW_DYNAREC=4
 LDFLAGS += -lcheck -lsubunit -lm
 
 all: test_wasm_dynarec

@@ -8,6 +8,7 @@
 #include "device/r4300/wasm_dynarec/wasm_dynarec.h"
 #include "device/memory/memory.h"
 #include "device/r4300/fpu.h"
+#include "device/r4300/tlb.h"
 
 #define ENCODE_COP1(fmt, ft, fs, fd, func) \
     ((0x11u << 26) | ((fmt) << 21) | ((ft) << 16) | ((fs) << 11) | ((fd) << 6) | (func))
@@ -214,6 +215,94 @@ static void run_asm_test(const char *name, const uint32_t *code, size_t count,
     free(rdram_buf);
 }
 
+static void run_tlb_test(const char *name, const uint32_t *code, size_t count,
+                         const struct cpu_state *initial,
+                         const struct cpu_state *expected,
+                         const struct tlb_entry *init_tlb, unsigned init_index,
+                         const struct tlb_entry *expected_tlb,
+                         unsigned check_index)
+{
+    struct r4300_core *cpu = calloc(1, sizeof(*cpu));
+    ck_assert_ptr_nonnull(cpu);
+
+    cpu->cp0.count_per_op = 2;
+    cpu->cp0.last_addr = initial->hot.pcaddr ? initial->hot.pcaddr : 0x80000000;
+
+    struct memory mem = {0};
+    uint8_t *rdram_buf = calloc(0x10000, 1);
+    ck_assert_ptr_nonnull(rdram_buf);
+
+    struct mem_mapping mapping = { 0, 0x10000 - 1, 0,
+                                  { rdram_buf, test_read32, test_write32 } };
+    struct mem_handler dbg = { rdram_buf, test_read32, test_write32 };
+    init_memory(&mem, &mapping, 1, NULL, &dbg);
+    cpu->mem = &mem;
+
+    memcpy(rdram_buf, code, count * sizeof(uint32_t));
+
+    wasm_dynarec_init(cpu);
+    wasm_dynarec_recompile_block(cpu, code, count, 0x80000000);
+
+    memcpy(&cpu->new_dynarec_hot_state, &initial->hot,
+           sizeof(cpu->new_dynarec_hot_state));
+    cpu->new_dynarec_hot_state.pc = &cpu->new_dynarec_hot_state.fake_pc;
+    cpu->new_dynarec_hot_state.fake_pc.f.r.rs =
+        &cpu->new_dynarec_hot_state.rs;
+    cpu->new_dynarec_hot_state.fake_pc.f.r.rt =
+        &cpu->new_dynarec_hot_state.rt;
+    cpu->new_dynarec_hot_state.fake_pc.f.r.rd =
+        &cpu->new_dynarec_hot_state.rd;
+    cpu->cp1.new_dynarec_hot_state = &cpu->new_dynarec_hot_state;
+    cpu->cp2.new_dynarec_hot_state = &cpu->new_dynarec_hot_state;
+    if (cpu->new_dynarec_hot_state.pcaddr == 0)
+        cpu->new_dynarec_hot_state.pcaddr = 0x80000000;
+    for (int i = 0; i < 32; i++)
+        cpu->cp1.regs[i].dword = initial->cp1[i];
+
+    if (init_tlb)
+        cpu->cp0.tlb.entries[init_index] = *init_tlb;
+
+    wasm_dynarec_exec(cpu, 0x80000000);
+
+    if (expected->hot.pcaddr) {
+        for (int i = 0; i < 64 &&
+                    cpu->new_dynarec_hot_state.pcaddr != expected->hot.pcaddr; i++)
+            wasm_dynarec_exec(cpu, cpu->new_dynarec_hot_state.pcaddr);
+    } else {
+        for (int i = 0; i < 64 && cpu->new_dynarec_hot_state.pcaddr != 0; i++)
+            wasm_dynarec_exec(cpu, cpu->new_dynarec_hot_state.pcaddr);
+    }
+
+    for (int i = 0; i < 32; i++)
+        ck_assert_msg(cpu->new_dynarec_hot_state.regs[i] == expected->hot.regs[i], "r%u", i);
+    for (int i = 0; i < 32; i++)
+        ck_assert_msg(cpu->new_dynarec_hot_state.cp0_regs[i] == expected->hot.cp0_regs[i], "cp0_%u", i);
+    for (int i = 0; i < 32; i++)
+        ck_assert_msg(cpu->cp1.regs[i].dword == expected->cp1[i], "cp1_%u", i);
+    if (expected->hot.pcaddr)
+        ck_assert_msg(cpu->new_dynarec_hot_state.pcaddr == expected->hot.pcaddr, "pcaddr");
+
+    if (expected_tlb) {
+        const struct tlb_entry *e = &cpu->cp0.tlb.entries[check_index];
+        ck_assert_int_eq(e->mask, expected_tlb->mask);
+        ck_assert_int_eq(e->vpn2, expected_tlb->vpn2);
+        ck_assert_int_eq(e->asid, expected_tlb->asid);
+        ck_assert_int_eq(e->pfn_even, expected_tlb->pfn_even);
+        ck_assert_int_eq(e->pfn_odd, expected_tlb->pfn_odd);
+        ck_assert_int_eq(e->c_even, expected_tlb->c_even);
+        ck_assert_int_eq(e->c_odd, expected_tlb->c_odd);
+        ck_assert_int_eq(e->d_even, expected_tlb->d_even);
+        ck_assert_int_eq(e->d_odd, expected_tlb->d_odd);
+        ck_assert_int_eq(e->v_even, expected_tlb->v_even);
+        ck_assert_int_eq(e->v_odd, expected_tlb->v_odd);
+        ck_assert_int_eq(e->g, expected_tlb->g);
+    }
+
+    wasm_dynarec_cleanup();
+    free(cpu);
+    free(rdram_buf);
+}
+
 START_TEST(test_compile_example)
 {
     struct r4300_core *cpu = calloc(1, sizeof(*cpu));
@@ -251,6 +340,194 @@ START_TEST(test_compile_example)
 
     wasm_dynarec_cleanup();
     free(cpu);
+}
+END_TEST
+
+START_TEST(test_tlbwi)
+{
+    const uint32_t block[] = {
+        0x42000002, /* tlbwi */
+        0x00000000
+    };
+
+    struct tlb_entry init_entry = {0};
+
+    memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
+    init_state.hot.cp0_regs[CP0_INDEX_REG] = 0;
+    init_state.hot.cp0_regs[CP0_ENTRYHI_REG] = 0x00020001;
+    init_state.hot.cp0_regs[CP0_ENTRYLO0_REG] = 0x0048d142;
+    init_state.hot.cp0_regs[CP0_ENTRYLO1_REG] = 0x008d1582;
+    init_state.hot.cp0_regs[CP0_PAGEMASK_REG] = 0;
+
+    struct tlb_entry expect_entry = {
+        .mask = 0,
+        .vpn2 = 0x10,
+        .g = 0,
+        .asid = 1,
+        .pfn_even = 0x12345,
+        .c_even = 0,
+        .d_even = 0,
+        .v_even = 1,
+        .pfn_odd = 0x23456,
+        .c_odd = 0,
+        .d_odd = 0,
+        .v_odd = 1,
+        .start_even = 0x20000,
+        .end_even = 0x20fff,
+        .phys_even = 0x12345000,
+        .start_odd = 0x21000,
+        .end_odd = 0x21fff,
+        .phys_odd = 0x23456000
+    };
+
+    memset(&expect_state, 0, sizeof(expect_state));
+    expect_state.hot.cp0_regs[CP0_INDEX_REG] = 0;
+    expect_state.hot.cp0_regs[CP0_ENTRYHI_REG] = 0x00020001;
+    expect_state.hot.cp0_regs[CP0_ENTRYLO0_REG] = 0x0048d142;
+    expect_state.hot.cp0_regs[CP0_ENTRYLO1_REG] = 0x008d1582;
+    expect_state.hot.cp0_regs[CP0_PAGEMASK_REG] = 0;
+    expect_state.hot.cp0_regs[CP0_COUNT_REG] = 4;
+    expect_state.hot.pcaddr = 0x80000008;
+
+    run_tlb_test("tlbwi", block, sizeof(block)/4, &init_state, &expect_state,
+                 &init_entry, 0, &expect_entry, 0);
+}
+END_TEST
+
+START_TEST(test_tlbwr)
+{
+    const uint32_t block[] = {
+        0x42000006, /* tlbwr */
+        0x00000000
+    };
+
+    struct tlb_entry init_entry = {0};
+
+    memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
+    init_state.hot.cp0_regs[CP0_ENTRYHI_REG] = 0x00020001;
+    init_state.hot.cp0_regs[CP0_ENTRYLO0_REG] = 0x0048d142;
+    init_state.hot.cp0_regs[CP0_ENTRYLO1_REG] = 0x008d1582;
+    init_state.hot.cp0_regs[CP0_PAGEMASK_REG] = 0;
+
+    struct tlb_entry expect_entry = {
+        .mask = 0,
+        .vpn2 = 0x10,
+        .g = 0,
+        .asid = 1,
+        .pfn_even = 0x12345,
+        .c_even = 0,
+        .d_even = 0,
+        .v_even = 1,
+        .pfn_odd = 0x23456,
+        .c_odd = 0,
+        .d_odd = 0,
+        .v_odd = 1,
+        .start_even = 0x20000,
+        .end_even = 0x20fff,
+        .phys_even = 0x12345000,
+        .start_odd = 0x21000,
+        .end_odd = 0x21fff,
+        .phys_odd = 0x23456000
+    };
+
+    memset(&expect_state, 0, sizeof(expect_state));
+    expect_state.hot.cp0_regs[CP0_ENTRYHI_REG] = 0x00020001;
+    expect_state.hot.cp0_regs[CP0_ENTRYLO0_REG] = 0x0048d142;
+    expect_state.hot.cp0_regs[CP0_ENTRYLO1_REG] = 0x008d1582;
+    expect_state.hot.cp0_regs[CP0_PAGEMASK_REG] = 0;
+    expect_state.hot.cp0_regs[CP0_RANDOM_REG] = 0;
+    expect_state.hot.cp0_regs[CP0_COUNT_REG] = 4;
+    expect_state.hot.pcaddr = 0x80000008;
+
+    run_tlb_test("tlbwr", block, sizeof(block)/4, &init_state, &expect_state,
+                 &init_entry, 0, &expect_entry, 0);
+}
+END_TEST
+
+START_TEST(test_tlbr)
+{
+    const uint32_t block[] = {
+        0x42000001, /* tlbr */
+        0x00000000
+    };
+
+    struct tlb_entry init_entry = {
+        .mask = 0,
+        .vpn2 = 0x20,
+        .g = 1,
+        .asid = 0,
+        .pfn_even = 0x34567,
+        .c_even = 0,
+        .d_even = 0,
+        .v_even = 1,
+        .pfn_odd = 0x45678,
+        .c_odd = 0,
+        .d_odd = 0,
+        .v_odd = 1,
+        .start_even = 0x40000,
+        .end_even = 0x40fff,
+        .phys_even = 0x34567000,
+        .start_odd = 0x41000,
+        .end_odd = 0x41fff,
+        .phys_odd = 0x45678000
+    };
+
+    memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
+    init_state.hot.cp0_regs[CP0_INDEX_REG] = 0;
+
+    memset(&expect_state, 0, sizeof(expect_state));
+    expect_state.hot.cp0_regs[CP0_INDEX_REG] = 0;
+    expect_state.hot.cp0_regs[CP0_PAGEMASK_REG] = init_entry.mask << 13;
+    expect_state.hot.cp0_regs[CP0_ENTRYHI_REG] = 0;
+    expect_state.hot.cp0_regs[CP0_ENTRYLO0_REG] = 0;
+    expect_state.hot.cp0_regs[CP0_ENTRYLO1_REG] = 0;
+    expect_state.hot.cp0_regs[CP0_COUNT_REG] = 4;
+    expect_state.hot.pcaddr = 0x80000008;
+
+    run_tlb_test("tlbr", block, sizeof(block)/4, &init_state, &expect_state,
+                 &init_entry, 0, NULL, 0);
+}
+END_TEST
+
+START_TEST(test_tlbp)
+{
+    const uint32_t block[] = {
+        0x42000008, /* tlbp */
+        0x00000000
+    };
+
+    struct tlb_entry init_entry = {
+        .mask = 0,
+        .vpn2 = 0x30,
+        .g = 1,
+        .asid = 0,
+        .pfn_even = 0,
+        .pfn_odd = 0,
+        .v_even = 1,
+        .v_odd = 1,
+        .start_even = 0x60000,
+        .end_even = 0x60fff,
+        .phys_even = 0,
+        .start_odd = 0x61000,
+        .end_odd = 0x61fff,
+        .phys_odd = 0
+    };
+
+    memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
+    init_state.hot.cp0_regs[CP0_ENTRYHI_REG] = (init_entry.vpn2 << 13) | 0;
+
+    memset(&expect_state, 0, sizeof(expect_state));
+    expect_state.hot.cp0_regs[CP0_INDEX_REG] = 0;
+    expect_state.hot.cp0_regs[CP0_ENTRYHI_REG] = (init_entry.vpn2 << 13) | 0;
+    expect_state.hot.cp0_regs[CP0_COUNT_REG] = 4;
+    expect_state.hot.pcaddr = 0x80000008;
+
+    run_tlb_test("tlbp", block, sizeof(block)/4, &init_state, &expect_state,
+                 &init_entry, 0, NULL, 0);
 }
 END_TEST
 
@@ -1687,6 +1964,10 @@ Suite *create_suite(void)
     tcase_add_test(tc_core, test_unaligned_ops);
     tcase_add_test(tc_core, test_delay_slots);
     tcase_add_test(tc_core, test_branch_likely);
+    tcase_add_test(tc_core, test_tlbwi);
+    tcase_add_test(tc_core, test_tlbwr);
+    tcase_add_test(tc_core, test_tlbr);
+    tcase_add_test(tc_core, test_tlbp);
     tcase_add_test(tc_core, test_cp0_moves);
     tcase_add_test(tc_core, test_cp1_moves);
     tcase_add_test(tc_core, test_cp1_arith);
