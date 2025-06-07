@@ -1385,6 +1385,68 @@ START_TEST(test_fibonacci_c)
 }
 END_TEST
 
+static int host_square(int x) { return x * x; }
+static int host_sumsq(int n) {
+    int s = 0;
+    for (int i = 1; i <= n; ++i)
+        s += host_square(i);
+    return s;
+}
+
+START_TEST(test_sumsq_c)
+{
+    const char *src = access("math.c", F_OK) == 0 ? "math.c" : "mupen64plus-core/test/wasm_dynarec/math.c";
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "mips-linux-gnu-gcc -O0 -fno-toplevel-reorder -mabi=32 -march=vr4300 -mno-abicalls -fno-stack-protector -nostdlib -c %s -o math.o", src);
+    int ret = system(cmd);
+    ck_assert_msg(ret == 0, "compile failed: %d", ret);
+    ret = system("mips-linux-gnu-objdump -d math.o > math.objdump");
+    ck_assert_msg(ret == 0, "objdump failed: %d", ret);
+    ret = system("mips-linux-gnu-objcopy -O binary -j .text math.o math.bin");
+    ck_assert_msg(ret == 0, "objcopy failed: %d", ret);
+
+    FILE *f = fopen("math.bin", "rb");
+    ck_assert_ptr_nonnull(f);
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    rewind(f);
+    uint8_t *buf = malloc(len);
+    fread(buf, 1, len, f);
+    fclose(f);
+
+    size_t count = len / 4;
+    uint32_t *code = malloc(len);
+    for (size_t i = 0; i < count; ++i) {
+        code[i] = ((uint32_t)buf[i*4] << 24) |
+                  ((uint32_t)buf[i*4+1] << 16) |
+                  ((uint32_t)buf[i*4+2] << 8) |
+                  (uint32_t)buf[i*4+3];
+    }
+    free(buf);
+
+    memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
+    memset(&expect_state, 0, sizeof(expect_state));
+    init_state.hot.regs[4] = 5; /* argument n */
+    init_state.hot.regs[29] = 0x80002000; /* stack pointer */
+    expect_state.hot.regs[2] = host_sumsq(5);
+    expect_state.hot.regs[3] = 5; /* final loop counter */
+    expect_state.hot.regs[4] = init_state.hot.regs[4];
+    expect_state.hot.regs[29] = 0xffffffff80002000ULL;
+    expect_state.hot.lo = host_square(5);
+    init_state.hot.regs[31] = 0xffffffff80000080ULL;
+    expect_state.hot.regs[31] = init_state.hot.regs[31];
+    expect_state.hot.pcaddr = 0x80000080;
+
+    run_asm_test("sumsq_c", code, count, &init_state, &expect_state);
+
+    free(code);
+    remove("math.o");
+    remove("math.bin");
+    remove("math.objdump");
+}
+END_TEST
+
 START_TEST(test_stack_rw)
 {
     const uint32_t block[] = {
@@ -1540,6 +1602,7 @@ Suite *create_suite(void)
     tcase_add_test(tc_core, test_stack_rw);
     tcase_add_test(tc_core, test_stack_offset);
     tcase_add_test(tc_core, test_loop_stack);
+    tcase_add_test(tc_core, test_sumsq_c);
     tcase_add_test(tc_core, test_fibonacci_c);
     tcase_add_test(tc_core, test_self_modifying);
     tcase_add_test(tc_core, test_complex_control_flow);
