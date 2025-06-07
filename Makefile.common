@@ -540,4 +540,9 @@ else
 	SOURCES_C += $(LIBRETRO_COMM_DIR)/glsym/glsym_gl.c
 endif
 SOURCES_C += $(LIBRETRO_COMM_DIR)/glsym/rglgen.c
-SOURCES_C += $(CORE_DIR)/src/device/r4300/wasm_dynarec/wasm_dynarec.c
+SOURCES_C += $(CORE_DIR)/src/device/r4300/wasm_dynarec/wasm_dynarec.c \
+             $(CORE_DIR)/src/device/r4300/wasm_dynarec/ops/Arithmetic.c \
+             $(CORE_DIR)/src/device/r4300/wasm_dynarec/ops/LoadStore.c \
+             $(CORE_DIR)/src/device/r4300/wasm_dynarec/ops/ControlFlow.c \
+             $(CORE_DIR)/src/device/r4300/wasm_dynarec/ops/FPU.c \
+             $(CORE_DIR)/src/device/r4300/wasm_dynarec/ops/Utils.c
