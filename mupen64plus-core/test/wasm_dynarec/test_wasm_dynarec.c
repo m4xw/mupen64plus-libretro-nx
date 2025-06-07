@@ -187,12 +187,14 @@ static void run_asm_test(const char *name, const uint32_t *code, size_t count,
 
     const char *dbg_env = getenv("WASM_TEST_DEBUG");
     if (dbg_env && dbg_env[0]) {
-        printf("%s: r2=%llx r3=%llx a0=%llx sp=%llx pc=%x\n", name,
+        printf("%s: r2=%llx r3=%llx a0=%llx sp=%llx pc=%x hi=%llx lo=%llx\n", name,
                (unsigned long long)cpu->new_dynarec_hot_state.regs[2],
                (unsigned long long)cpu->new_dynarec_hot_state.regs[3],
                (unsigned long long)cpu->new_dynarec_hot_state.regs[4],
                (unsigned long long)cpu->new_dynarec_hot_state.regs[29],
-               cpu->new_dynarec_hot_state.pcaddr);
+               cpu->new_dynarec_hot_state.pcaddr,
+               (unsigned long long)cpu->new_dynarec_hot_state.hi,
+               (unsigned long long)cpu->new_dynarec_hot_state.lo);
         fflush(stdout);
     }
 
@@ -1393,6 +1395,12 @@ static int host_sumsq(int n) {
     return s;
 }
 
+static int host_factorial(int n) {
+    if (n <= 1)
+        return 1;
+    return n * host_factorial(n - 1);
+}
+
 START_TEST(test_sumsq_c)
 {
     const char *src = access("math.c", F_OK) == 0 ? "math.c" : "mupen64plus-core/test/wasm_dynarec/math.c";
@@ -1444,6 +1452,62 @@ START_TEST(test_sumsq_c)
     remove("math.o");
     remove("math.bin");
     remove("math.objdump");
+}
+END_TEST
+
+START_TEST(test_factorial_c)
+{
+    const char *src = access("factorial.c", F_OK) == 0 ? "factorial.c" : "mupen64plus-core/test/wasm_dynarec/factorial.c";
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "mips-linux-gnu-gcc -O2 -mabi=32 -march=vr4300 -mno-abicalls -fno-stack-protector -nostdlib -c %s -o factorial.o", src);
+    int ret = system(cmd);
+    ck_assert_msg(ret == 0, "compile failed: %d", ret);
+    ret = system("mips-linux-gnu-objdump -d factorial.o > factorial.objdump");
+    ck_assert_msg(ret == 0, "objdump failed: %d", ret);
+    ret = system("mips-linux-gnu-objcopy -O binary -j .text factorial.o factorial.bin");
+    ck_assert_msg(ret == 0, "objcopy failed: %d", ret);
+
+    FILE *f = fopen("factorial.bin", "rb");
+    ck_assert_ptr_nonnull(f);
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    rewind(f);
+    uint8_t *buf = malloc(len);
+    fread(buf, 1, len, f);
+    fclose(f);
+
+    size_t count = len / 4;
+    uint32_t *code = malloc(len);
+    for (size_t i = 0; i < count; ++i) {
+        code[i] = ((uint32_t)buf[i*4] << 24) |
+                  ((uint32_t)buf[i*4+1] << 16) |
+                  ((uint32_t)buf[i*4+2] << 8) |
+                  (uint32_t)buf[i*4+3];
+    }
+    free(buf);
+
+    memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
+    memset(&expect_state, 0, sizeof(expect_state));
+    init_state.hot.regs[4] = 5; /* argument n */
+    init_state.hot.regs[29] = 0x80002000; /* stack pointer */
+    expect_state.hot.regs[2] = host_factorial(5);
+    expect_state.hot.regs[3] = 1; /* loop counter */
+    expect_state.hot.regs[4] = 1; /* final argument */
+    expect_state.hot.regs[5] = 1; /* loop limit */
+    expect_state.hot.hi = 0;
+    expect_state.hot.lo = 0x78;
+    expect_state.hot.regs[29] = init_state.hot.regs[29];
+    init_state.hot.regs[31] = 0xffffffff80000080ULL; /* return address */
+    expect_state.hot.regs[31] = init_state.hot.regs[31];
+    expect_state.hot.pcaddr = 0x80000080;
+
+    run_asm_test("factorial_c", code, count, &init_state, &expect_state);
+
+    free(code);
+    remove("factorial.o");
+    remove("factorial.bin");
+    remove("factorial.objdump");
 }
 END_TEST
 
@@ -1603,6 +1667,7 @@ Suite *create_suite(void)
     tcase_add_test(tc_core, test_stack_offset);
     tcase_add_test(tc_core, test_loop_stack);
     tcase_add_test(tc_core, test_sumsq_c);
+    tcase_add_test(tc_core, test_factorial_c);
     tcase_add_test(tc_core, test_fibonacci_c);
     tcase_add_test(tc_core, test_self_modifying);
     tcase_add_test(tc_core, test_complex_control_flow);
