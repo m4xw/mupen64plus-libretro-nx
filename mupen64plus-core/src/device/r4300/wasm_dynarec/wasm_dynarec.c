@@ -426,9 +426,30 @@ EM_JS(void, wasm_dynarec_exec_js,
     }
   }
 
+  let memU8, memDV;
+  const heapU8 = HEAPU8;
+  const heapDV = new DataView(HEAPU8.buffer);
+  const CP1_BASE = 0x8000;
+
+  const dispatch_wrapper = function(base, addr) {
+    for (let i = 0; i < state_size; i++)
+      heapU8[state_ptr + i] = memU8[i];
+    for (let i = 0; i < 32; i++) {
+      const val = memDV.getBigUint64(CP1_BASE + i * 8, true);
+      heapDV.setBigUint64(cp1_ptr + i * 8, val, true);
+    }
+    Module['_wasm_dynarec_dispatch_import'](base, addr);
+    for (let i = 0; i < state_size; i++)
+      memU8[i] = heapU8[state_ptr + i];
+    for (let i = 0; i < 32; i++) {
+      const val = heapDV.getBigUint64(cp1_ptr + i * 8, true);
+      memDV.setBigUint64(CP1_BASE + i * 8, val, true);
+    }
+  };
+
   const imports = {
     env: {
-      wasm_dynarec_dispatch: Module['_wasm_dynarec_dispatch_import'],
+      wasm_dynarec_dispatch: dispatch_wrapper,
       mem_read32: Module['_wasm_dynarec_read_word'],
       mem_read64: Module['_wasm_dynarec_read_dword'],
       mem_write32: Module['_wasm_dynarec_write_word'],
@@ -445,15 +466,13 @@ EM_JS(void, wasm_dynarec_exec_js,
   const memory = instance.exports.memory;
   const entry = instance.exports.entry;
 
-  const memU8 = new Uint8Array(memory.buffer);
-  const memDV = new DataView(memory.buffer);
-  const heapU8 = HEAPU8;
-  const heapDV = new DataView(HEAPU8.buffer);
+  memU8 = new Uint8Array(memory.buffer);
+  memDV = new DataView(memory.buffer);
 
   for (let i = 0; i < state_size; i++)
     memU8[i] = heapU8[state_ptr + i];
 
-  const CP1_BASE = 0x8000;
+  // CP1_BASE declared above
   for (let i = 0; i < 32; i++) {
     const val = heapDV.getBigUint64(cp1_ptr + i * 8, true);
     memDV.setBigUint64(CP1_BASE + i * 8, val, true);
