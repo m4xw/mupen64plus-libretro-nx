@@ -512,8 +512,6 @@ int emit_loadstore_instr(char **buf, size_t *size, uint32_t inst)
                        (size_t)GPR_OFFSET(rt));
                 return 1;
             default:
-                append(buf, size,
-                       "    ;; unsupported opcode %02x\n", op);
                 return 0;
             }
 }

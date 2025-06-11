@@ -304,6 +304,7 @@ EMSCRIPTEN_KEEPALIVE
 uint32_t wasm_dynarec_read_word(uint32_t base, uint32_t addr)
 {
     (void)base;
+    DebugMessage(M64MSG_VERBOSE, "wasm_dynarec_read_word: addr=0x%08X", addr);
     uint32_t value = 0;
     if (g_current_cpu)
         r4300_read_aligned_word(g_current_cpu, addr, &value);
@@ -314,6 +315,7 @@ EMSCRIPTEN_KEEPALIVE
 uint64_t wasm_dynarec_read_dword(uint32_t base, uint32_t addr)
 {
     (void)base;
+    DebugMessage(M64MSG_VERBOSE, "wasm_dynarec_read_dword: addr=0x%08X", addr);
     uint64_t value = 0;
     if (g_current_cpu)
         r4300_read_aligned_dword(g_current_cpu, addr, &value);
@@ -325,6 +327,7 @@ void wasm_dynarec_write_word(uint32_t base, uint32_t addr,
                              uint32_t value, uint32_t mask)
 {
     (void)base;
+    DebugMessage(M64MSG_VERBOSE, "wasm_dynarec_write_word: addr=0x%08X, value=0x%08X, mask=0x%08X", addr, value, mask);
     if (g_current_cpu)
         r4300_write_aligned_word(g_current_cpu, addr, value, mask);
 }
@@ -334,6 +337,7 @@ void wasm_dynarec_write_dword(uint32_t base, uint32_t addr,
                               uint64_t value, uint64_t mask)
 {
     (void)base;
+    DebugMessage(M64MSG_VERBOSE, "wasm_dynarec_write_dword: addr=0x%08X, value=0x%08X, mask=0x%08X", addr, value, mask);
     if (g_current_cpu)
         r4300_write_aligned_dword(g_current_cpu, addr, value, mask);
 }
@@ -405,13 +409,15 @@ EM_JS(void, wasm_dynarec_exec_js,
        size_t state_size, size_t cp1_simple_off, size_t cp1_double_off),
 {
   const watStr = UTF8ToString(wat);
+  console.log(watStr);
+  
   let wasmBytes;
   if (Module['wabt']) {
     const mod = Module['wabt'].parseWat('block.wat', watStr);
     wasmBytes = mod.toBinary({}).buffer;
   } else if (typeof Binaryen !== 'undefined') {
     const mod = Binaryen.parseText(watStr);
-    wasmBytes = Binaryen.emitBinary(mod);
+    wasmBytes = mod.emitBinary();
   } else {
     console.log(watStr);
     console.error('No WAT compiler available');
@@ -434,6 +440,7 @@ EM_JS(void, wasm_dynarec_exec_js,
     }
   };
 
+  debugger;
   const instance = new WebAssembly.Instance(new WebAssembly.Module(wasmBytes), imports);
   const memory = instance.exports.memory;
   const entry = instance.exports.entry;
@@ -2023,6 +2030,8 @@ void wasm_dynarec_init(struct r4300_core *r4300)
         &r4300->new_dynarec_hot_state.rd;
 #endif
 
+    r4300->new_dynarec_hot_state.pcaddr = 0xa4000040;
+
     DebugMessage(M64MSG_INFO, "Initializing experimental WebAssembly dynarec");
 }
 
@@ -2072,6 +2081,8 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
     uint32_t targets[32];
     size_t target_count = 0;
 
+    DebugMessage(M64MSG_INFO, "Recompiling WebAssembly dynarec block at address %08x with %zu instructions", address, count);
+    
     struct wasm_dynarec_block *block = get_block(address);
     if (block) {
         free(block->wat);
@@ -2496,7 +2507,11 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
                targets[ti], targets[ti], (size_t)PC_OFFSET);
     }
 
-    append(&block->wat, &block->wat_size, ")\n");
+    append(&block->wat, &block->wat_size,
+           "  (export \"memory\" (memory 0))\n"
+           "  (export \"entry\" (func $block_%x))\n"
+           ")\n",
+           address);
 
     DebugMessage(M64MSG_INFO, "Recompiled block %08x to WebAssembly", address);
 }
@@ -2505,6 +2520,7 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
 {
     struct wasm_dynarec_block *block = get_block(address);
     if (!block || !block->wat) {
+        DebugMessage(M64MSG_INFO, "No WebAssembly block for %08x; recompiling", address);
         const uint32_t *iw = fast_mem_access(r4300, address);
         if (!iw) {
             DebugMessage(M64MSG_WARNING, "No WebAssembly block for %08x; using interpreter", address);
@@ -2525,6 +2541,7 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
     DebugMessage(M64MSG_INFO, "Executing WebAssembly block %08x", address);
     //DebugMessage(M64MSG_VERBOSE, "\n%s", block->wat);
 #ifdef __EMSCRIPTEN__
+    g_current_cpu = r4300;
     wasm_dynarec_exec_js((uintptr_t)&r4300->new_dynarec_hot_state,
                          (uintptr_t)&r4300->cp1.regs[0].dword,
                          block->wat,
@@ -2640,6 +2657,8 @@ void wasm_dynarec_dispatch(struct r4300_core *r4300, uint32_t address)
     const uint32_t *code = fast_mem_access(r4300, address);
     if (!code)
         return;
+
+    DebugMessage(M64MSG_INFO, "Dispatching WebAssembly dynarec block at address %08x", address);
 
     if (!get_block(address))
         wasm_dynarec_recompile_block(r4300, code, 4, address);

@@ -294,20 +294,28 @@ unsigned int get_r4300_emumode(struct r4300_core* r4300)
     return r4300->emumode;
 }
 
-uint32_t *fast_mem_access(struct r4300_core* r4300, uint32_t address)
-{
-    /* This code is performance critical, specially on pure interpreter mode.
-     * Removing error checking saves some time, but the emulator may crash. */
 
-    if ((address & UINT32_C(0xc0000000)) != UINT32_C(0x80000000)) {
+uint32_t *fast_mem_access(struct r4300_core *r4300, uint32_t address)
+{
+    uint32_t start = (uint32_t)address&~3;
+    if ((int)address >= 0xa0000000 && (int)address < 0xa07fffff) {
+        return (uint32_t *)((uintptr_t)g_dev.rdram.dram+start-0xa0000000);
+    }
+    else if ((int)address >= 0xa4000000 && (int)address < 0xa4001000) {
+        return (uint32_t *)((uintptr_t)g_dev.sp.mem+start-0xa4000000);
+    }
+    else if ((int)address >= 0x80000000 && (int)address < 0x80800000) {
+        return (uint32_t *)((uintptr_t)g_dev.rdram.dram+start-(uintptr_t)0x80000000);
+    }
+
+    if ((address & UINT32_C(0xc0000000)) != UINT32_C(0x80000000))
         address = virtual_to_physical_address(r4300, address, 2);
         if (address == 0) // TLB exception
             return NULL;
-    }
 
-    address &= UINT32_C(0x1ffffffc);
-
-    return mem_base_u32(r4300->mem->base, address);
+    address &= UINT32_C(0x1fffffff);
+    const struct mem_handler *h = mem_get_handler(r4300->mem, address);
+    return (uint32_t*)((uint8_t*)h->opaque + address);
 }
 
 /* Read aligned word from memory.
