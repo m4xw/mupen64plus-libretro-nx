@@ -1,5 +1,5 @@
 #include "../wasm_dynarec.h"
-#include "../new_dynarec/new_dynarec.h"
+#include "../../new_dynarec/new_dynarec.h"
 
 /*
  * Emit basic branch and jump instructions. This implementation is intentionally

@@ -1,5 +1,5 @@
 #include "../wasm_dynarec.h"
-#include "../new_dynarec/new_dynarec.h"
+#include "../../new_dynarec/new_dynarec.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>

@@ -503,8 +503,10 @@ void reset_hard_handler(void* opaque)
     if (r4300->emumode >= 2)
     {
 #ifdef NEW_DYNAREC
+#ifndef WASM_DYNAREC
         new_dynarec_cleanup();
         new_dynarec_init();
+#endif
 #else
 #if defined(__x86_64__)
         r4300->recomp.save_rsp = save_rsp;

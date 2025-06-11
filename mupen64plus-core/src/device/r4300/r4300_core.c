@@ -148,16 +148,17 @@ void run_r4300(struct r4300_core* r4300)
         r4300->emumode = EMUMODE_PURE_INTERPRETER;
         run_pure_interpreter(r4300);
     }
-#if defined(DYNAREC)
     else if (r4300->emumode == EMUMODE_DYNAREC)
     {
         DebugMessage(M64MSG_INFO, "Starting R4300 emulator: Dynamic Recompiler");
         r4300->emumode = EMUMODE_DYNAREC;
         init_blocks(&r4300->cached_interp);
-#ifdef NEW_DYNAREC
+#if defined(NEW_DYNAREC)
+#ifndef WASM_DYNAREC
         new_dynarec_init();
         new_dyna_start();
         new_dynarec_cleanup();
+#endif
 #else
         r4300->cached_interp.fin_block = dynarec_fin_block;
         r4300->cached_interp.not_compiled = dynarec_notcompiled;
@@ -179,9 +180,13 @@ void run_r4300(struct r4300_core* r4300)
     {
         DebugMessage(M64MSG_INFO, "Starting R4300 emulator: WASM Dynarec");
         r4300->emumode = EMUMODE_WASM_DYNAREC;
+#ifdef WASM_DYNAREC
+        init_blocks(&r4300->cached_interp);
         wasm_dynarec_init(r4300);
         wasm_dynarec_entry(r4300);
         wasm_dynarec_cleanup();
+        free_blocks(&r4300->cached_interp);
+#endif
     }
     else /* if (r4300->emumode == EMUMODE_INTERPRETER) */
     {
@@ -420,7 +425,9 @@ void invalidate_r4300_cached_code(struct r4300_core* r4300, uint32_t address, si
 #ifdef NEW_DYNAREC
         if (r4300->emumode == EMUMODE_DYNAREC)
         {
+#ifndef WASM_DYNAREC
             invalidate_cached_code_new_dynarec(r4300, address, size);
+#endif
         }
         else if (r4300->emumode == EMUMODE_WASM_DYNAREC)
         {
@@ -447,20 +454,13 @@ void generic_jump_to(struct r4300_core* r4300, uint32_t address)
         cached_interpreter_jump_to(r4300, address);
         break;
 
-#ifndef NO_ASM
     case EMUMODE_DYNAREC:
-#ifdef NEW_DYNAREC
-        r4300->new_dynarec_hot_state.pcaddr = address;
-        r4300->new_dynarec_hot_state.pending_exception = 1;
-#else
-        dynarec_jump_to(r4300, address);
-#endif
         break;
+        
     case EMUMODE_WASM_DYNAREC:
         r4300->new_dynarec_hot_state.pcaddr = address;
         r4300->new_dynarec_hot_state.pending_exception = 1;
         break;
-#endif
 
     default:
         /* should not happen */

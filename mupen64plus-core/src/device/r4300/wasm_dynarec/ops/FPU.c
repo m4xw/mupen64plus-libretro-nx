@@ -1,5 +1,5 @@
 #include "../wasm_dynarec.h"
-#include "../new_dynarec/new_dynarec.h"
+#include "../../new_dynarec/new_dynarec.h"
 
 /*
  * Emit a subset of floating point instructions used by the WASM dynarec.

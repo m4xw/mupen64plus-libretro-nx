@@ -7,15 +7,17 @@
 #include "device/r4300/cp0.h"
 #include "device/r4300/cached_interp.h"
 #include "device/r4300/interrupt.h"
-#include "wasm3.h"
 #ifdef __EMSCRIPTEN__
 # include <emscripten/emscripten.h>
+#else
+#include "wasm3.h"
 #endif
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 
+unsigned int stop_after_jal;
 
 struct wasm_dynarec_block
 {
@@ -411,8 +413,11 @@ EM_JS(void, wasm_dynarec_exec_js,
     const mod = Binaryen.parseText(watStr);
     wasmBytes = Binaryen.emitBinary(mod);
   } else {
+    console.log(watStr);
     console.error('No WAT compiler available');
-    return;
+    while(true) {
+      // Infinite loop to prevent execution
+    }
   }
 
   const imports = {
@@ -2518,7 +2523,7 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
     r4300->new_dynarec_hot_state.pcaddr = start_pc;
 
     DebugMessage(M64MSG_INFO, "Executing WebAssembly block %08x", address);
-    DebugMessage(M64MSG_VERBOSE, "\n%s", block->wat);
+    //DebugMessage(M64MSG_VERBOSE, "\n%s", block->wat);
 #ifdef __EMSCRIPTEN__
     wasm_dynarec_exec_js((uintptr_t)&r4300->new_dynarec_hot_state,
                          (uintptr_t)&r4300->cp1.regs[0].dword,
