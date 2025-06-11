@@ -458,8 +458,8 @@ START_TEST(test_nested_dispatch)
     expect_state.hot.regs[4] = 1;  /* a0 */
     expect_state.hot.regs[8] = 2;  /* t0 */
     expect_state.hot.regs[9] = 3;  /* t1 */
-    expect_state.hot.regs[31] = 0x80000018; /* ra */
-    expect_state.hot.pcaddr = 0x80000018;
+    expect_state.hot.regs[31] = 0; /* ra cleared in delay slot */
+    expect_state.hot.pcaddr = 0;
 
     run_nested_test("nested_dispatch",
                     main_block, sizeof(main_block)/4,
