@@ -7,6 +7,7 @@
 #include "device/r4300/cp0.h"
 #include "device/r4300/cached_interp.h"
 #include "device/r4300/interrupt.h"
+#include "device/rcp/mi/mi_controller.h"
 #ifdef __EMSCRIPTEN__
 # include <emscripten/emscripten.h>
 #else
@@ -161,6 +162,84 @@ static void wasm_cp0_update_count(struct r4300_core *r4300)
     cp0->last_addr = pc;
 }
 
+static uint32_t wasm_cp0_read32(struct r4300_core *r4300, unsigned int reg)
+{
+    uint32_t *cp0_regs = r4300->new_dynarec_hot_state.cp0_regs;
+    uint64_t *cp0_latch = &r4300->new_dynarec_hot_state.cp0_latch;
+
+    switch (reg) {
+    case CP0_RANDOM_REG:
+        wasm_cp0_update_count(r4300);
+        cp0_regs[CP0_RANDOM_REG] =
+            (cp0_regs[CP0_COUNT_REG] / r4300->cp0.count_per_op %
+             (32 - cp0_regs[CP0_WIRED_REG])) + cp0_regs[CP0_WIRED_REG];
+        return cp0_regs[reg];
+    case CP0_COUNT_REG:
+        wasm_cp0_update_count(r4300);
+        return cp0_regs[reg];
+    case CP0_UNUSED_7:
+    case CP0_UNUSED_21:
+    case CP0_UNUSED_22:
+    case CP0_UNUSED_23:
+    case CP0_UNUSED_24:
+    case CP0_UNUSED_25:
+    case CP0_UNUSED_31:
+        return (uint32_t)(*cp0_latch);
+    default:
+        return cp0_regs[reg];
+    }
+}
+
+static void wasm_cp0_write32(struct r4300_core *r4300, unsigned int reg,
+                             uint32_t value)
+{
+    uint32_t *cp0_regs = r4300->new_dynarec_hot_state.cp0_regs;
+    int *cycle_count = &r4300->new_dynarec_hot_state.cycle_count;
+
+    r4300->new_dynarec_hot_state.cp0_latch = value;
+
+    switch (reg) {
+    case CP0_COUNT_REG:
+        wasm_cp0_update_count(r4300);
+        r4300->cp0.interrupt_unsafe_state |= INTR_UNSAFE_R4300;
+        if (*cycle_count >= 0)
+            gen_interrupt(r4300);
+        r4300->cp0.interrupt_unsafe_state &= ~INTR_UNSAFE_R4300;
+        translate_event_queue(&r4300->cp0, value);
+        break;
+    case CP0_COMPARE_REG:
+        wasm_cp0_update_count(r4300);
+        remove_event(&r4300->cp0.q, COMPARE_INT);
+        cp0_regs[CP0_COUNT_REG] += r4300->cp0.count_per_op;
+        *cycle_count += r4300->cp0.count_per_op;
+        add_interrupt_event_count(&r4300->cp0, COMPARE_INT, value);
+        cp0_regs[CP0_COUNT_REG] -= r4300->cp0.count_per_op;
+        *cycle_count = cp0_regs[CP0_COUNT_REG] -
+                       r4300->cp0.q.first->data.count;
+        cp0_regs[CP0_COMPARE_REG] = value;
+        cp0_regs[CP0_CAUSE_REG] &= ~CP0_CAUSE_IP7;
+        break;
+    case CP0_STATUS_REG:
+        value &= ~UINT32_C(0x080000);
+        if ((value & CP0_STATUS_FR) !=
+            (cp0_regs[CP0_STATUS_REG] & CP0_STATUS_FR))
+            set_fpr_pointers(&r4300->cp1, value);
+        cp0_regs[CP0_STATUS_REG] = value;
+        wasm_cp0_update_count(r4300);
+        r4300_check_interrupt(r4300, CP0_CAUSE_IP2,
+            r4300->mi->regs[MI_INTR_REG] &
+            r4300->mi->regs[MI_INTR_MASK_REG]);
+        r4300->cp0.interrupt_unsafe_state |= INTR_UNSAFE_R4300;
+        if (*cycle_count >= 0)
+            gen_interrupt(r4300);
+        r4300->cp0.interrupt_unsafe_state &= ~INTR_UNSAFE_R4300;
+        break;
+    default:
+        cp0_regs[reg] = value;
+        break;
+    }
+}
+
 static void wasm_tlbp(struct r4300_core *r4300)
 {
     uint32_t *cp0_regs = r4300->new_dynarec_hot_state.cp0_regs;
@@ -229,6 +308,29 @@ m3ApiRawFunction(wasm_dynarec_read_dword)
     if (g_current_cpu)
         r4300_read_aligned_dword(g_current_cpu, addr, &value);
     m3ApiReturn(value);
+}
+
+m3ApiRawFunction(wasm_dynarec_cp0_read)
+{
+    m3ApiReturnType(uint64_t)
+    m3ApiGetArg(uint32_t, base);
+    m3ApiGetArg(uint32_t, reg);
+    (void)base;
+    uint64_t value = 0;
+    if (g_current_cpu)
+        value = wasm_cp0_read32(g_current_cpu, reg);
+    m3ApiReturn(value);
+}
+
+m3ApiRawFunction(wasm_dynarec_cp0_write)
+{
+    m3ApiGetArg(uint32_t, base);
+    m3ApiGetArg(uint32_t, reg);
+    m3ApiGetArg(uint64_t, value);
+    (void)base;
+    if (g_current_cpu)
+        wasm_cp0_write32(g_current_cpu, reg, (uint32_t)value);
+    m3ApiSuccess();
 }
 
 m3ApiRawFunction(wasm_dynarec_write_word)
@@ -389,6 +491,24 @@ void wasm_dynarec_tlbwr(uint32_t base)
         invalidate_cached_code_wasm_dynarec(g_current_cpu, 0, 0);
     }
 }
+
+EMSCRIPTEN_KEEPALIVE
+uint64_t wasm_dynarec_cp0_read(uint32_t base, uint32_t reg)
+{
+    (void)base;
+    uint64_t value = 0;
+    if (g_current_cpu)
+        value = wasm_cp0_read32(g_current_cpu, reg);
+    return value;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void wasm_dynarec_cp0_write(uint32_t base, uint32_t reg, uint64_t value)
+{
+    (void)base;
+    if (g_current_cpu)
+        wasm_cp0_write32(g_current_cpu, reg, (uint32_t)value);
+}
 #endif
 
 static struct wasm_dynarec_block *get_block(uint32_t address)
@@ -466,6 +586,8 @@ EM_JS(void, wasm_dynarec_exec_js,
         mem_read64: Module['_wasm_dynarec_read_dword'],
         mem_write32: Module['_wasm_dynarec_write_word'],
         mem_write64: Module['_wasm_dynarec_write_dword'],
+        cp0_read: Module['_wasm_dynarec_cp0_read'],
+        cp0_write: Module['_wasm_dynarec_cp0_write'],
         tlbp: Module['_wasm_dynarec_tlbp'],
         tlbr: Module['_wasm_dynarec_tlbr'],
         tlbwi: Module['_wasm_dynarec_tlbwi'],
@@ -1206,38 +1328,58 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
         case 0x00:
             append(buf, size,
                    "    ;; mfc0 r%u, c%u\n"
-                   "    local.get $base i32.load offset=%zu\n"
+                   "    local.get $base\n"
+                   "    i32.const %u\n"
+                   "    call $cp0_read\n"
+                   "    i32.wrap_i64\n"
                    "    i64.extend_i32_s\n"
                    "    local.set $t\n"
                    "    local.get $base\n"
                    "    local.get $t\n"
-                   "    i64.store offset=%zu\n",
+                   "    i64.store offset=%zu\n"
+                   "    local.get $base\n"
+                   "    local.get $t\n"
+                   "    i32.wrap_i64\n"
+                   "    i32.store offset=%zu\n",
                    rt, rd,
-                   (size_t)CP0_OFFSET(rd),
-                   (size_t)GPR_OFFSET(rt));
+                   rd,
+                   (size_t)GPR_OFFSET(rt),
+                   (size_t)CP0_OFFSET(rd));
             break;
         case 0x01:
             append(buf, size,
                    "    ;; dmfc0 r%u, c%u\n"
-                   "    local.get $base i32.load offset=%zu\n"
-                   "    i64.extend_i32_s\n"
+                   "    local.get $base\n"
+                   "    i32.const %u\n"
+                   "    call $cp0_read\n"
                    "    local.set $t\n"
                    "    local.get $base\n"
                    "    local.get $t\n"
-                   "    i64.store offset=%zu\n",
+                   "    i64.store offset=%zu\n"
+                   "    local.get $base\n"
+                   "    local.get $t\n"
+                   "    i32.wrap_i64\n"
+                   "    i32.store offset=%zu\n",
                    rt, rd,
-                   (size_t)CP0_OFFSET(rd),
-                   (size_t)GPR_OFFSET(rt));
+                   rd,
+                   (size_t)GPR_OFFSET(rt),
+                   (size_t)CP0_OFFSET(rd));
             break;
         case 0x04:
         case 0x05:
             append(buf, size,
                    "    ;; mtc0/dmtc0 r%u, c%u\n"
                    "    local.get $base\n"
+                   "    i32.const %u\n"
+                   "    local.get $base i64.load offset=%zu\n"
+                   "    call $cp0_write\n"
+                   "    local.get $base\n"
                    "    local.get $base i64.load offset=%zu\n"
                    "    i32.wrap_i64\n"
                    "    i32.store offset=%zu\n",
                    rt, rd,
+                   rd,
+                   (size_t)GPR_OFFSET(rt),
                    (size_t)GPR_OFFSET(rt),
                    (size_t)CP0_OFFSET(rd));
             break;
@@ -2145,6 +2287,8 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
            "  (import \"env\" \"mem_read64\" (func $mem_read64 (param i32 i32) (result i64)))\n"
            "  (import \"env\" \"mem_write32\" (func $mem_write32 (param i32 i32 i32 i32)))\n"
            "  (import \"env\" \"mem_write64\" (func $mem_write64 (param i32 i32 i64 i64)))\n"
+           "  (import \"env\" \"cp0_read\" (func $cp0_read (param i32 i32) (result i64)))\n"
+           "  (import \"env\" \"cp0_write\" (func $cp0_write (param i32 i32 i64)))\n"
            "  (import \"env\" \"tlbp\" (func $tlbp (param i32)))\n"
            "  (import \"env\" \"tlbr\" (func $tlbr (param i32)))\n"
            "  (import \"env\" \"tlbwi\" (func $tlbwi (param i32)))\n"
@@ -2654,6 +2798,8 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
     m3_LinkRawFunction(module, "env", "mem_read64", "I(ii)", wasm_dynarec_read_dword);
     m3_LinkRawFunction(module, "env", "mem_write32", "v(iiii)", wasm_dynarec_write_word);
     m3_LinkRawFunction(module, "env", "mem_write64", "v(iiII)", wasm_dynarec_write_dword);
+    m3_LinkRawFunction(module, "env", "cp0_read", "I(ii)", wasm_dynarec_cp0_read);
+    m3_LinkRawFunction(module, "env", "cp0_write", "v(iiI)", wasm_dynarec_cp0_write);
     m3_LinkRawFunction(module, "env", "tlbp", "v(i)", wasm_dynarec_tlbp);
     m3_LinkRawFunction(module, "env", "tlbr", "v(i)", wasm_dynarec_tlbr);
     m3_LinkRawFunction(module, "env", "tlbwi", "v(i)", wasm_dynarec_tlbwi);
@@ -2753,4 +2899,25 @@ void wasm_dynarec_entry(struct r4300_core *r4300)
 
 #ifndef HAVE_GEN_INTERRUPT
 __attribute__((weak)) void gen_interrupt(struct r4300_core* r4300) { (void)r4300; }
+#endif
+
+#ifndef HAVE_TRANSLATE_EVENT_QUEUE
+__attribute__((weak)) void translate_event_queue(struct cp0* cp0, unsigned int base)
+{ (void)cp0; (void)base; }
+#endif
+#ifndef HAVE_REMOVE_EVENT
+__attribute__((weak)) void remove_event(struct interrupt_queue* q, int type)
+{ (void)q; (void)type; }
+#endif
+#ifndef HAVE_ADD_INTERRUPT_EVENT_COUNT
+__attribute__((weak)) void add_interrupt_event_count(struct cp0* cp0, int type, unsigned int count)
+{ (void)cp0; (void)type; (void)count; }
+#endif
+#ifndef HAVE_SET_FPR_POINTERS
+__attribute__((weak)) void set_fpr_pointers(struct cp1* cp1, uint32_t status)
+{ (void)cp1; (void)status; }
+#endif
+#ifndef HAVE_R4300_CHECK_INTERRUPT
+__attribute__((weak)) void r4300_check_interrupt(struct r4300_core* r4300, uint32_t cause_ip, int set)
+{ (void)r4300; (void)cause_ip; (void)set; }
 #endif
