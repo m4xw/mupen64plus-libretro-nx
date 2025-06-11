@@ -26,6 +26,7 @@ struct wasm_dynarec_block
     size_t wat_size;
     uint32_t mem_pages;
     size_t iw_count;
+    int idle;
 };
 
 static struct wasm_dynarec_block *g_blocks = NULL;
@@ -2106,6 +2107,7 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
         block->wat = NULL;
         block->wat_size = 0;
         block->iw_count = count;
+        block->idle = 0;
     } else {
         g_blocks = realloc(g_blocks, sizeof(*g_blocks) * (g_blocks_count + 1));
         block = &g_blocks[g_blocks_count++];
@@ -2114,6 +2116,7 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
         block->wat_size = 0;
         block->mem_pages = 0;
         block->iw_count = count;
+        block->idle = 0;
     }
 
     size_t mem_bytes = sizeof(struct new_dynarec_hot_state) + 0x8000 + 0x1000;
@@ -2196,6 +2199,8 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
             uint32_t pc = address + i * 4;
             uint32_t target = ((pc + 4) & 0xf0000000) | ((inst & 0x03ffffff) << 2);
             uint32_t delay = (i + 1 < count) ? iw[i + 1] : 0;
+            if (i == 0 && target == address && delay == 0)
+                block->idle = 1;
             append(&block->wat, &block->wat_size,
                    op == 0x02 ? "    ;; j %08x\n" : "    ;; jal %08x\n",
                    target);
@@ -2255,6 +2260,9 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
             uint32_t target = address + (i + 1) * 4 + offset;
             uint32_t fallthrough = address + (i + 2) * 4;
             uint32_t delay = (i + 1 < count) ? iw[i + 1] : 0;
+
+            if (i == 0 && target == address && delay == 0)
+                block->idle = 1;
 
             int likely = (op >= 0x14);
             const char *condop = NULL;
@@ -2333,6 +2341,8 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
             uint32_t target = address + (i + 1) * 4 + offset;
             uint32_t fallthrough = address + (i + 2) * 4;
             uint32_t delay = (i + 1 < count) ? iw[i + 1] : 0;
+            if (i == 0 && target == address && delay == 0)
+                block->idle = 1;
             int likely = (rtcode == 0x02 || rtcode == 0x03 || rtcode == 0x12 || rtcode == 0x13);
 
             const char *cond = NULL;
@@ -2428,6 +2438,8 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
                 uint32_t target = address + (i + 1) * 4 + offset;
                 uint32_t fallthrough = address + (i + 2) * 4;
                 uint32_t delay = (i + 1 < count) ? iw[i + 1] : 0;
+                if (i == 0 && target == address && delay == 0)
+                    block->idle = 1;
 
                 int likely = (rtcode & 2) != 0;
                 int cond = (rtcode & 1) != 0;
@@ -2566,8 +2578,13 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
                          offsetof(struct new_dynarec_hot_state, cp1_regs_simple),
                          offsetof(struct new_dynarec_hot_state, cp1_regs_double));
 
+    if (block->idle && r4300->new_dynarec_hot_state.cycle_count < 0) {
+        r4300->new_dynarec_hot_state.cp0_regs[CP0_COUNT_REG] -=
+            r4300->new_dynarec_hot_state.cycle_count;
+        r4300->new_dynarec_hot_state.cycle_count = 0;
+    }
     wasm_dynarec_update_count(r4300, start_pc);
-    if (r4300->new_dynarec_hot_state.cycle_count >= 0)
+    if (block->idle || r4300->new_dynarec_hot_state.cycle_count >= 0)
         gen_interrupt(r4300);
 #else
     char wat_path[64];
@@ -2638,8 +2655,13 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
     for (int i = 0; i < 32; i++)
         r4300->cp1.regs[i].dword = *(uint64_t*)(mem + 0x8000 + i*8);
 
+    if (block->idle && r4300->new_dynarec_hot_state.cycle_count < 0) {
+        r4300->new_dynarec_hot_state.cp0_regs[CP0_COUNT_REG] -=
+            r4300->new_dynarec_hot_state.cycle_count;
+        r4300->new_dynarec_hot_state.cycle_count = 0;
+    }
     wasm_dynarec_update_count(r4300, start_pc);
-    if (r4300->new_dynarec_hot_state.cycle_count >= 0)
+    if (block->idle || r4300->new_dynarec_hot_state.cycle_count >= 0)
         gen_interrupt(r4300);
 
     g_current_cpu = NULL;
