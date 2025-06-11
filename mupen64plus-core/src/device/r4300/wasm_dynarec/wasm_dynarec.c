@@ -2035,8 +2035,6 @@ void wasm_dynarec_init(struct r4300_core *r4300)
     g_blocks = NULL;
     g_blocks_count = 0;
 
-    memset(&r4300->new_dynarec_hot_state, 0,
-           sizeof(r4300->new_dynarec_hot_state));
 
 #ifdef NEW_DYNAREC
     r4300->new_dynarec_hot_state.pc =
