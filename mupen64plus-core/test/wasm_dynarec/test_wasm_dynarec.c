@@ -215,6 +215,98 @@ static void run_asm_test(const char *name, const uint32_t *code, size_t count,
     free(rdram_buf);
 }
 
+static void run_nested_test(const char *name,
+                            const uint32_t *code1, size_t count1,
+                            const uint32_t *code2, size_t count2,
+                            const struct cpu_state *initial,
+                            const struct cpu_state *expected)
+{
+    struct r4300_core *cpu = calloc(1, sizeof(*cpu));
+    ck_assert_ptr_nonnull(cpu);
+
+    struct memory mem = {0};
+    uint8_t *rdram_buf = calloc(0x10000, 1);
+    ck_assert_ptr_nonnull(rdram_buf);
+
+    struct mem_mapping mapping = { 0, 0x10000 - 1, 0,
+                                  { rdram_buf, test_read32, test_write32 } };
+    struct mem_handler dbg = { rdram_buf, test_read32, test_write32 };
+    init_memory(&mem, &mapping, 1, NULL, &dbg);
+    cpu->mem = &mem;
+
+    memcpy(rdram_buf, code1, count1 * sizeof(uint32_t));
+    memcpy(rdram_buf + 0x20, code2, count2 * sizeof(uint32_t));
+
+    wasm_dynarec_init(cpu);
+    wasm_dynarec_recompile_block(cpu, code1, count1, 0x80000000);
+    wasm_dynarec_recompile_block(cpu, code2, count2, 0x80000020);
+
+    const char *wat_env = getenv("WASM_TEST_WAT");
+    if (wat_env && wat_env[0]) {
+        const char *wat = wasm_dynarec_get_wat(0x80000000);
+        if (wat)
+            printf("%s main WAT:\n%s\n", name, wat);
+        wat = wasm_dynarec_get_wat(0x80000020);
+        if (wat)
+            printf("%s callee WAT:\n%s\n", name, wat);
+    }
+
+    memcpy(&cpu->new_dynarec_hot_state, &initial->hot,
+           sizeof(cpu->new_dynarec_hot_state));
+    cpu->new_dynarec_hot_state.pc = &cpu->new_dynarec_hot_state.fake_pc;
+    cpu->new_dynarec_hot_state.fake_pc.f.r.rs =
+        &cpu->new_dynarec_hot_state.rs;
+    cpu->new_dynarec_hot_state.fake_pc.f.r.rt =
+        &cpu->new_dynarec_hot_state.rt;
+    cpu->new_dynarec_hot_state.fake_pc.f.r.rd =
+        &cpu->new_dynarec_hot_state.rd;
+    cpu->cp1.new_dynarec_hot_state = &cpu->new_dynarec_hot_state;
+    cpu->cp2.new_dynarec_hot_state = &cpu->new_dynarec_hot_state;
+    if (cpu->new_dynarec_hot_state.pcaddr == 0)
+        cpu->new_dynarec_hot_state.pcaddr = 0x80000000;
+    for (int i = 0; i < 32; i++)
+        cpu->cp1.regs[i].dword = initial->cp1[i];
+
+    wasm_dynarec_exec(cpu, 0x80000000);
+
+    if (expected->hot.pcaddr) {
+        for (int i = 0; i < 64 &&
+                    cpu->new_dynarec_hot_state.pcaddr != expected->hot.pcaddr; i++)
+            wasm_dynarec_exec(cpu, cpu->new_dynarec_hot_state.pcaddr);
+    } else {
+        for (int i = 0; i < 64 && cpu->new_dynarec_hot_state.pcaddr != 0; i++)
+            wasm_dynarec_exec(cpu, cpu->new_dynarec_hot_state.pcaddr);
+    }
+
+    const char *dbg_env = getenv("WASM_TEST_DEBUG");
+    if (dbg_env && dbg_env[0]) {
+        printf("%s: r2=%llx r3=%llx a0=%llx ra=%llx pc=%x hi=%llx lo=%llx\n", name,
+               (unsigned long long)cpu->new_dynarec_hot_state.regs[2],
+               (unsigned long long)cpu->new_dynarec_hot_state.regs[3],
+               (unsigned long long)cpu->new_dynarec_hot_state.regs[4],
+               (unsigned long long)cpu->new_dynarec_hot_state.regs[31],
+               cpu->new_dynarec_hot_state.pcaddr,
+               (unsigned long long)cpu->new_dynarec_hot_state.hi,
+               (unsigned long long)cpu->new_dynarec_hot_state.lo);
+        fflush(stdout);
+    }
+
+    for (int i = 0; i < 32; i++)
+        ck_assert_msg(cpu->new_dynarec_hot_state.regs[i] == expected->hot.regs[i], "r%u", i);
+    for (int i = 0; i < 32; i++)
+        ck_assert_msg(cpu->new_dynarec_hot_state.cp0_regs[i] == expected->hot.cp0_regs[i], "cp0_%u", i);
+    for (int i = 0; i < 32; i++)
+        ck_assert_msg(cpu->cp1.regs[i].dword == expected->cp1[i], "cp1_%u", i);
+    ck_assert_msg(cpu->new_dynarec_hot_state.hi == expected->hot.hi, "hi");
+    ck_assert_msg(cpu->new_dynarec_hot_state.lo == expected->hot.lo, "lo");
+    if (expected->hot.pcaddr)
+        ck_assert_msg(cpu->new_dynarec_hot_state.pcaddr == expected->hot.pcaddr, "pcaddr");
+
+    wasm_dynarec_cleanup();
+    free(cpu);
+    free(rdram_buf);
+}
+
 static void run_tlb_test(const char *name, const uint32_t *code, size_t count,
                          const struct cpu_state *initial,
                          const struct cpu_state *expected,
@@ -338,6 +430,41 @@ START_TEST(test_compile_example)
 
     wasm_dynarec_cleanup();
     free(cpu);
+}
+END_TEST
+
+START_TEST(test_nested_dispatch)
+{
+    const uint32_t main_block[] = {
+        0x0c000008, /* jal 0x80000020 */
+        0x20040001, /* addi a0, zero, 1 */
+        0x3c1f8000, /* lui  ra, 0x8000 */
+        0x37ff0018, /* ori  ra, ra, 0x18 */
+        0x01091021, /* addu v0, t0, t1 */
+        0x03e00008, /* jr ra */
+        0x241f0000  /* addiu ra, zero, 0 (delay slot) */
+    };
+    const uint32_t callee_block[] = {
+        0x24080002, /* addiu t0, zero, 2 */
+        0x24090003, /* addiu t1, zero, 3 */
+        0x03e00008, /* jr ra */
+        0x00000000  /* nop */
+    };
+
+    memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
+    memset(&expect_state, 0, sizeof(expect_state));
+    expect_state.hot.regs[2] = 5;  /* v0 */
+    expect_state.hot.regs[4] = 1;  /* a0 */
+    expect_state.hot.regs[8] = 2;  /* t0 */
+    expect_state.hot.regs[9] = 3;  /* t1 */
+    expect_state.hot.regs[31] = 0x80000018; /* ra */
+    expect_state.hot.pcaddr = 0x80000018;
+
+    run_nested_test("nested_dispatch",
+                    main_block, sizeof(main_block)/4,
+                    callee_block, sizeof(callee_block)/4,
+                    &init_state, &expect_state);
 }
 END_TEST
 
@@ -1986,6 +2113,7 @@ Suite *create_suite(void)
     tcase_add_test(tc_core, test_factorial_c);
     tcase_add_test(tc_core, test_fibonacci_c);
     tcase_add_test(tc_core, test_self_modifying);
+    tcase_add_test(tc_core, test_nested_dispatch);
     tcase_add_test(tc_core, test_complex_control_flow);
     suite_add_tcase(s, tc_core);
     return s;
