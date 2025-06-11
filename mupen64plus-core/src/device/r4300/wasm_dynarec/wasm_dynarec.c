@@ -33,6 +33,8 @@ static struct wasm_dynarec_block *g_blocks = NULL;
 static size_t g_blocks_count = 0;
 
 static struct r4300_core *g_current_cpu = NULL;
+static uint32_t g_dispatch_pc = 0;
+static int g_dispatch_pending = 0;
 unsigned int using_tlb = 0;
 
 static void wasm_dynarec_update_count(struct r4300_core *r4300,
@@ -197,8 +199,11 @@ m3ApiRawFunction(wasm_dynarec_dispatch_import)
     m3ApiGetArg(uint32_t, base);
     m3ApiGetArg(uint32_t, addr);
     (void)base;
-    if (g_current_cpu)
-        wasm_dynarec_dispatch(g_current_cpu, addr);
+    if (g_current_cpu) {
+        g_current_cpu->new_dynarec_hot_state.pcaddr = addr;
+        g_dispatch_pc = addr;
+        g_dispatch_pending = 1;
+    }
     m3ApiSuccess();
 }
 
@@ -297,8 +302,11 @@ EMSCRIPTEN_KEEPALIVE
 void wasm_dynarec_dispatch_import(uint32_t base, uint32_t addr)
 {
     (void)base;
-    if (g_current_cpu)
-        wasm_dynarec_dispatch(g_current_cpu, addr);
+    if (g_current_cpu) {
+        g_current_cpu->new_dynarec_hot_state.pcaddr = addr;
+        g_dispatch_pc = addr;
+        g_dispatch_pending = 1;
+    }
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -2690,19 +2698,29 @@ const char *wasm_dynarec_get_wat(uint32_t address)
     return block ? block->wat : NULL;
 }
 
-/* Simple dispatcher that recompiles and prints blocks using the new_dynarec_hot_state */
+/* Simple dispatcher that recompiles and executes blocks using the new_dynarec_hot_state */
 void wasm_dynarec_dispatch(struct r4300_core *r4300, uint32_t address)
 {
-    const uint32_t *code = fast_mem_access(r4300, address);
-    if (!code)
-        return;
+    uint32_t pc = address;
+    g_dispatch_pending = 1;
+    g_dispatch_pc = address;
 
-    DebugMessage(M64MSG_INFO, "Dispatching WebAssembly dynarec block at address %08x", address);
+    while (g_dispatch_pending) {
+        g_dispatch_pending = 0;
 
-    if (!get_block(address))
-        wasm_dynarec_recompile_block(r4300, code, 4, address);
+        const uint32_t *code = fast_mem_access(r4300, pc);
+        if (!code)
+            return;
 
-    wasm_dynarec_exec(r4300, address);
+        DebugMessage(M64MSG_INFO, "Dispatching WebAssembly dynarec block at address %08x", pc);
+
+        if (!get_block(pc))
+            wasm_dynarec_recompile_block(r4300, code, 4, pc);
+
+        wasm_dynarec_exec(r4300, pc);
+
+        pc = g_dispatch_pc;
+    }
 }
 
 void wasm_dynarec_entry(struct r4300_core *r4300)
