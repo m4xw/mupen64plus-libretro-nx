@@ -327,9 +327,7 @@ START_TEST(test_compile_example)
     if (wat_len > 2 && wat[wat_len - 2] == ')' && wat[wat_len - 1] == '\n')
         wat_len -= 2; /* drop final )\n */
     fwrite(wat, 1, wat_len, wat_file);
-    fprintf(wat_file,
-            "  (export \"memory\" (memory 0))\n"
-            "  (export \"entry\" (func $block_800d7cd0))\n)");
+    fprintf(wat_file, "\n)");
     fclose(wat_file);
 
     const char *wasm_path = "mupen64plus-core/test/wasm_dynarec/test_block.wasm";
