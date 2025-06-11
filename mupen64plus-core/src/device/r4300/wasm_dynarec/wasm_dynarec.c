@@ -2548,8 +2548,7 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
     if (len > 2 && block->wat[len-2] == ')' && block->wat[len-1] == '\n')
         len -= 2;
     fwrite(block->wat, 1, len, f);
-    fprintf(f, "  (export \"memory\" (memory 0))\n");
-    fprintf(f, "  (export \"entry\" (func $block_%08x))\n)", address);
+    fprintf(f, "  \n)");
     fclose(f);
 
     char cmd[256];
