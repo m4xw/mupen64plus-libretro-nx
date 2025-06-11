@@ -1402,6 +1402,8 @@ static void update_variables(bool startup)
              r4300_emumode = EMUMODE_WASM_DYNAREC;
        }
 
+      r4300_emumode = EMUMODE_WASM_DYNAREC;
+      
        var.key = CORE_NAME "-aspect";
        var.value = NULL;
        if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
