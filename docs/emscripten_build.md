@@ -12,10 +12,14 @@ make platform=emscripten
 ```
 
 The build will generate `mupen64plus_next_libretro_emscripten.bc`. Convert the
-bitcode to a runnable module with `emcc`:
+bitcode to a runnable module with `emcc`. WebAssembly dynamic recompilation uses
+64‑bit integers for callbacks which requires BigInt support when calling into
+the compiled module. Pass `-s WASM_BIGINT=1` so exported functions accept
+`BigInt` values from the generated blocks:
 
 ```
-emcc mupen64plus_next_libretro_emscripten.bc -O2 -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME="Module" -o mupen64plus_next.js
+emcc mupen64plus_next_libretro_emscripten.bc -O2 -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME="Module" \
+    -s WASM_BIGINT=1 -o mupen64plus_next.js
 ```
 
 Include either `wabt.js` or `binaryen.js` in your page so the runtime provides
