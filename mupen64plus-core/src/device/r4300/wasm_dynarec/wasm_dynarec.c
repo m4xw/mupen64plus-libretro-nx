@@ -563,20 +563,37 @@ EM_JS(void, wasm_dynarec_exec_js,
     }
 
     let tmpU8, tmpDV;
-    const dispatch_wrapper = function(base, a) {
+    const sync_to_heap = function() {
       for (let i = 0; i < state_size; i++)
         heapU8[state_ptr + i] = tmpU8[i];
       for (let i = 0; i < 32; i++) {
         const v = tmpDV.getBigUint64(CP1_BASE + i * 8, true);
         heapDV.setBigUint64(cp1_ptr + i * 8, v, true);
       }
-      Module['_wasm_dynarec_dispatch_import'](base, a);
+    };
+    const sync_from_heap = function() {
       for (let i = 0; i < state_size; i++)
         tmpU8[i] = heapU8[state_ptr + i];
       for (let i = 0; i < 32; i++) {
         const v = heapDV.getBigUint64(cp1_ptr + i * 8, true);
         tmpDV.setBigUint64(CP1_BASE + i * 8, v, true);
       }
+    };
+    const dispatch_wrapper = function(base, a) {
+      sync_to_heap();
+      Module['_wasm_dynarec_dispatch_import'](base, a);
+      sync_from_heap();
+    };
+    const cp0_read_wrapper = function(base, reg) {
+      sync_to_heap();
+      const v = Module['_wasm_dynarec_cp0_read'](base, reg);
+      sync_from_heap();
+      return v;
+    };
+    const cp0_write_wrapper = function(base, reg, value) {
+      sync_to_heap();
+      Module['_wasm_dynarec_cp0_write'](base, reg, value);
+      sync_from_heap();
     };
 
     const imports = {
@@ -586,8 +603,8 @@ EM_JS(void, wasm_dynarec_exec_js,
         mem_read64: Module['_wasm_dynarec_read_dword'],
         mem_write32: Module['_wasm_dynarec_write_word'],
         mem_write64: Module['_wasm_dynarec_write_dword'],
-        cp0_read: Module['_wasm_dynarec_cp0_read'],
-        cp0_write: Module['_wasm_dynarec_cp0_write'],
+        cp0_read: cp0_read_wrapper,
+        cp0_write: cp0_write_wrapper,
         tlbp: Module['_wasm_dynarec_tlbp'],
         tlbr: Module['_wasm_dynarec_tlbr'],
         tlbwi: Module['_wasm_dynarec_tlbwi'],
