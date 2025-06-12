@@ -12,6 +12,7 @@
 # include <emscripten/emscripten.h>
 #else
 #include "wasm3.h"
+#include "m3_env.h"
 #endif
 #include <unistd.h>
 #include <stdlib.h>
@@ -2755,6 +2756,9 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
 
     IM3Environment env = m3_NewEnvironment();
     IM3Runtime runtime = m3_NewRuntime(env, 64*1024, NULL);
+    runtime->memory.maxPages = block->mem_pages;
+    runtime->memory.pageSize = d_m3DefaultMemPageSize;
+    ResizeMemory(runtime, block->mem_pages);
     IM3Module module = NULL;
     M3Result m3res = m3_ParseModule(env, &module, wasm, wasm_size);
     if (!m3res) m3res = m3_LoadModule(runtime, module);
