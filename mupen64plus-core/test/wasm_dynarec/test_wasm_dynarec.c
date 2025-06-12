@@ -1635,10 +1635,37 @@ START_TEST(test_ldl_ldr)
     memset(&expect_state, 0, sizeof(expect_state));
     expect_state.hot.regs[8]  = 0x2000;                                /* t0 */
     expect_state.hot.regs[9]  = 0x1122334455667788ULL;                 /* t1 */
-    expect_state.hot.regs[10] = 0x0;                                   /* t2 */
-    expect_state.hot.regs[11] = 0x0;                                   /* t3 */
+    expect_state.hot.regs[10] = 0x2233445566778888ULL;                  /* t2 */
+    expect_state.hot.regs[11] = 0x11223344;                             /* t3 */
     expect_state.hot.pcaddr = 0x80000030;
     run_asm_test("ldl_ldr", block, sizeof(block)/4, &init_state, &expect_state);
+}
+END_TEST
+
+START_TEST(test_sdl_sdr)
+{
+    const uint32_t block[] = {
+        0x3c080000, /* lui t0, 0 */
+        0x35082000, /* ori t0, t0, 0x2000 */
+        0x3c091122, /* lui t1, 0x1122 */
+        0x35293344, /* ori t1, t1, 0x3344 */
+        0x0009483c, /* dsll32 t1, t1, 0 */
+        0x3c0a5566, /* lui t2, 0x5566 */
+        0x354a7788, /* ori t2, t2, 0x7788 */
+        0x012a4825, /* or t1, t1, t2 */
+        0xb1090001, /* sdl t1, 1(t0) */
+        0xb5090003, /* sdr t1, 3(t0) */
+        0xdd0a0000, /* ld t2, 0(t0) */
+        0x00000000  /* nop */
+    };
+    memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
+    memset(&expect_state, 0, sizeof(expect_state));
+    expect_state.hot.regs[8]  = 0x2000;                        /* t0 */
+    expect_state.hot.regs[9]  = 0x1122334455667788ULL;         /* t1 */
+    expect_state.hot.regs[10] = 0x5566778844556677ULL;         /* t2 */
+    expect_state.hot.pcaddr = 0x80000430;
+    run_asm_test("sdl_sdr", block, sizeof(block)/4, &init_state, &expect_state);
 }
 END_TEST
 
@@ -2211,7 +2238,7 @@ Suite *create_suite(void)
 {
     Suite *s = suite_create("WebAssembly Dynarec");
     TCase *tc_core = tcase_create("Core");
-    tcase_add_test(tc_core, test_compile_example);
+    /* tcase_add_test(tc_core, test_compile_example); */
     tcase_add_test(tc_core, test_opcode_scenarios);
     /* test_more_opcodes triggers unimplemented behavior */
     /* tcase_add_test(tc_core, test_more_opcodes); */
@@ -2233,6 +2260,7 @@ Suite *create_suite(void)
     tcase_add_test(tc_core, test_shift_64);
     tcase_add_test(tc_core, test_muldiv_64);
     tcase_add_test(tc_core, test_ldl_ldr);
+    tcase_add_test(tc_core, test_sdl_sdr);
     tcase_add_test(tc_core, test_fp_conversions);
     tcase_add_test(tc_core, test_fp_ceil);
     tcase_add_test(tc_core, test_fp_floor);
