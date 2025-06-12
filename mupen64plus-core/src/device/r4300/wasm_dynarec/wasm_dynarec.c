@@ -548,17 +548,17 @@ EM_JS(void, wasm_dynarec_exec_js,
   const CP1_BASE = 0x8000;
 
   const totalPages = ((state_size + 0x8000 + 0x1000 + 65535) >>> 16);
-  if (!Module.wasmMemory) {
-    Module.wasmMemory = new WebAssembly.Memory({
+  if (!Module._dynarecMemory) {
+    Module._dynarecMemory = new WebAssembly.Memory({
       initial: totalPages,
       maximum: totalPages,
       shared: true
     });
-    Module.wasmMemoryU8 = new Uint8Array(Module.wasmMemory.buffer);
-    Module.wasmMemoryDV = new DataView(Module.wasmMemory.buffer);
+    Module._dynarecMemoryU8 = new Uint8Array(Module._dynarecMemory.buffer);
+    Module._dynarecMemoryDV = new DataView(Module._dynarecMemory.buffer);
     for (let i = 0; i < 32; i++) {
-      Module.wasmMemoryDV.setBigUint64(cp1_simple_off + i * 8, BigInt(CP1_BASE + i * 8), true);
-      Module.wasmMemoryDV.setBigUint64(cp1_double_off + i * 8, BigInt(CP1_BASE + i * 8), true);
+      Module._dynarecMemoryDV.setBigUint64(cp1_simple_off + i * 8, BigInt(CP1_BASE + i * 8), true);
+      Module._dynarecMemoryDV.setBigUint64(cp1_double_off + i * 8, BigInt(CP1_BASE + i * 8), true);
     }
   }
 
@@ -601,7 +601,7 @@ EM_JS(void, wasm_dynarec_exec_js,
         tlbr: Module['_wasm_dynarec_tlbr'],
         tlbwi: Module['_wasm_dynarec_tlbwi'],
         tlbwr: Module['_wasm_dynarec_tlbwr'],
-        memory: Module.wasmMemory
+        memory: Module._dynarecMemory
       }
     };
 
@@ -610,12 +610,12 @@ EM_JS(void, wasm_dynarec_exec_js,
 
     block = {instance, entry};
     Module.wasmBlockCache[addr] = block;
-    memU8 = Module.wasmMemoryU8;
-    memDV = Module.wasmMemoryDV;
+    memU8 = Module._dynarecMemoryU8;
+    memDV = Module._dynarecMemoryDV;
   } else {
     ({instance, entry} = block);
-    memU8 = Module.wasmMemoryU8;
-    memDV = Module.wasmMemoryDV;
+    memU8 = Module._dynarecMemoryU8;
+    memDV = Module._dynarecMemoryDV;
   }
 
   for (let i = 0; i < state_size; i++)
@@ -2883,7 +2883,7 @@ void wasm_dynarec_dispatch(struct r4300_core *r4300, uint32_t address)
         if (!code)
             return;
 
-        DebugMessage(M64MSG_INFO, "Dispatching WebAssembly dynarec block at address %08x", pc);
+        //DebugMessage(M64MSG_INFO, "Dispatching WebAssembly dynarec block at address %08x", pc);
 
         if (!get_block(pc))
             wasm_dynarec_recompile_block(r4300, code, 4, pc);
