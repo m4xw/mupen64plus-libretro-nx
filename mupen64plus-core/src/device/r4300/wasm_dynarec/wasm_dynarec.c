@@ -626,6 +626,26 @@ EM_JS(void, wasm_dynarec_exec_js,
       Module['_wasm_dynarec_cp0_write'](base, reg, value);
       sync_from_heap();
     };
+    const tlbp_wrapper = function(base) {
+      sync_to_heap();
+      Module['_wasm_dynarec_tlbp'](base);
+      sync_from_heap();
+    };
+    const tlbr_wrapper = function(base) {
+      sync_to_heap();
+      Module['_wasm_dynarec_tlbr'](base);
+      sync_from_heap();
+    };
+    const tlbwi_wrapper = function(base) {
+      sync_to_heap();
+      Module['_wasm_dynarec_tlbwi'](base);
+      sync_from_heap();
+    };
+    const tlbwr_wrapper = function(base) {
+      sync_to_heap();
+      Module['_wasm_dynarec_tlbwr'](base);
+      sync_from_heap();
+    };
 
     const imports = {
       env: {
@@ -636,10 +656,10 @@ EM_JS(void, wasm_dynarec_exec_js,
         mem_write64: mem_write64_wrapper,
         cp0_read: cp0_read_wrapper,
         cp0_write: cp0_write_wrapper,
-        tlbp: Module['_wasm_dynarec_tlbp'],
-        tlbr: Module['_wasm_dynarec_tlbr'],
-        tlbwi: Module['_wasm_dynarec_tlbwi'],
-        tlbwr: Module['_wasm_dynarec_tlbwr']
+        tlbp: tlbp_wrapper,
+        tlbr: tlbr_wrapper,
+        tlbwi: tlbwi_wrapper,
+        tlbwr: tlbwr_wrapper
       }
     };
 
