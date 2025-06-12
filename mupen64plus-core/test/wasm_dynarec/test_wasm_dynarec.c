@@ -395,6 +395,72 @@ static void run_tlb_test(const char *name, const uint32_t *code, size_t count,
     free(rdram_buf);
 }
 
+static void run_count_test(const char *name, const uint32_t *code, size_t count,
+                           const struct cpu_state *initial,
+                           const struct cpu_state *expected)
+{
+    struct r4300_core *cpu = calloc(1, sizeof(*cpu));
+    ck_assert_ptr_nonnull(cpu);
+
+    cpu->cp0.count_per_op = 2;
+    cpu->cp0.last_addr = initial->hot.pcaddr ? initial->hot.pcaddr : 0x80000000;
+
+    struct memory mem = {0};
+    uint8_t *rdram_buf = calloc(0x10000, 1);
+    ck_assert_ptr_nonnull(rdram_buf);
+
+    struct mem_mapping mapping = { 0, 0x10000 - 1, 0,
+                                  { rdram_buf, test_read32, test_write32 } };
+    struct mem_handler dbg = { rdram_buf, test_read32, test_write32 };
+    init_memory(&mem, &mapping, 1, NULL, &dbg);
+    cpu->mem = &mem;
+
+    memcpy(rdram_buf, code, count * sizeof(uint32_t));
+
+    wasm_dynarec_init(cpu);
+    wasm_dynarec_recompile_block(cpu, code, count, 0x80000000);
+
+    memcpy(&cpu->new_dynarec_hot_state, &initial->hot,
+           sizeof(cpu->new_dynarec_hot_state));
+    cpu->new_dynarec_hot_state.pc = &cpu->new_dynarec_hot_state.fake_pc;
+    cpu->new_dynarec_hot_state.fake_pc.f.r.rs =
+        &cpu->new_dynarec_hot_state.rs;
+    cpu->new_dynarec_hot_state.fake_pc.f.r.rt =
+        &cpu->new_dynarec_hot_state.rt;
+    cpu->new_dynarec_hot_state.fake_pc.f.r.rd =
+        &cpu->new_dynarec_hot_state.rd;
+    cpu->cp1.new_dynarec_hot_state = &cpu->new_dynarec_hot_state;
+    cpu->cp2.new_dynarec_hot_state = &cpu->new_dynarec_hot_state;
+    if (cpu->new_dynarec_hot_state.pcaddr == 0)
+        cpu->new_dynarec_hot_state.pcaddr = 0x80000000;
+    for (int i = 0; i < 32; i++)
+        cpu->cp1.regs[i].dword = initial->cp1[i];
+
+    wasm_dynarec_exec(cpu, 0x80000000);
+
+    if (expected->hot.pcaddr) {
+        for (int i = 0; i < 64 &&
+                    cpu->new_dynarec_hot_state.pcaddr != expected->hot.pcaddr; i++)
+            wasm_dynarec_exec(cpu, cpu->new_dynarec_hot_state.pcaddr);
+    } else {
+        for (int i = 0; i < 64 && cpu->new_dynarec_hot_state.pcaddr != 0; i++)
+            wasm_dynarec_exec(cpu, cpu->new_dynarec_hot_state.pcaddr);
+    }
+
+    for (int i = 0; i < 32; i++)
+        ck_assert_msg(cpu->new_dynarec_hot_state.regs[i] == expected->hot.regs[i], "r%u", i);
+    for (int i = 0; i < 32; i++)
+        ck_assert_msg(cpu->new_dynarec_hot_state.cp0_regs[i] == expected->hot.cp0_regs[i], "cp0_%u", i);
+    for (int i = 0; i < 32; i++)
+        ck_assert_msg(cpu->cp1.regs[i].dword == expected->cp1[i], "cp1_%u", i);
+    if (expected->hot.pcaddr)
+        ck_assert_msg(cpu->new_dynarec_hot_state.pcaddr == expected->hot.pcaddr, "pcaddr");
+
+    wasm_dynarec_cleanup();
+    free(cpu);
+    free(rdram_buf);
+}
+
 START_TEST(test_compile_example)
 {
     struct r4300_core *cpu = calloc(1, sizeof(*cpu));
@@ -1300,6 +1366,32 @@ START_TEST(test_cp0_moves)
 }
 END_TEST
 
+START_TEST(test_cp0_count_loop)
+{
+    const uint32_t block[] = {
+        0x24080000, /* addiu t0, zero, 0 */
+        0x25080001, /* addiu t0, t0, 1 */
+        0x29090005, /* slti  t1, t0, 5 */
+        0x1520fffd, /* bnez  t1, -3 */
+        0x00000000, /* nop */
+        0x03e00008, /* jr ra */
+        0x00000000  /* nop */
+    };
+
+    memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
+    init_state.hot.regs[31] = 0xffffffff8000001cULL; /* return address */
+    memset(&expect_state, 0, sizeof(expect_state));
+    expect_state.hot.regs[8] = 5; /* t0 */
+    expect_state.hot.cp0_regs[CP0_COUNT_REG] = 14;
+    expect_state.hot.regs[31] = init_state.hot.regs[31];
+    expect_state.hot.pcaddr = 0x8000001c;
+
+    run_count_test("cp0_count_loop", block, sizeof(block)/4,
+                   &init_state, &expect_state);
+}
+END_TEST
+
 START_TEST(test_cp1_moves)
 {
     const uint32_t block[] = {
@@ -2094,6 +2186,7 @@ Suite *create_suite(void)
     tcase_add_test(tc_core, test_tlbr);
     tcase_add_test(tc_core, test_tlbp);
     tcase_add_test(tc_core, test_cp0_moves);
+    tcase_add_test(tc_core, test_cp0_count_loop);
     tcase_add_test(tc_core, test_cp1_moves);
     tcase_add_test(tc_core, test_cp1_arith);
     tcase_add_test(tc_core, test_shift_64);
