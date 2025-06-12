@@ -395,15 +395,16 @@ static void run_tlb_test(const char *name, const uint32_t *code, size_t count,
     free(rdram_buf);
 }
 
-static void run_count_test(const char *name, const uint32_t *code, size_t count,
-                           const struct cpu_state *initial,
-                           const struct cpu_state *expected)
+static void run_count_test_addr(const char *name, const uint32_t *code,
+                                size_t count, uint32_t addr,
+                                const struct cpu_state *initial,
+                                const struct cpu_state *expected)
 {
     struct r4300_core *cpu = calloc(1, sizeof(*cpu));
     ck_assert_ptr_nonnull(cpu);
 
     cpu->cp0.count_per_op = 2;
-    cpu->cp0.last_addr = initial->hot.pcaddr ? initial->hot.pcaddr : 0x80000000;
+    cpu->cp0.last_addr = initial->hot.pcaddr ? initial->hot.pcaddr : addr;
 
     struct memory mem = {0};
     uint8_t *rdram_buf = calloc(0x10000, 1);
@@ -415,10 +416,11 @@ static void run_count_test(const char *name, const uint32_t *code, size_t count,
     init_memory(&mem, &mapping, 1, NULL, &dbg);
     cpu->mem = &mem;
 
-    memcpy(rdram_buf, code, count * sizeof(uint32_t));
+    uint32_t off = addr - 0x80000000;
+    memcpy(rdram_buf + off, code, count * sizeof(uint32_t));
 
     wasm_dynarec_init(cpu);
-    wasm_dynarec_recompile_block(cpu, code, count, 0x80000000);
+    wasm_dynarec_recompile_block(cpu, code, count, addr);
 
     memcpy(&cpu->new_dynarec_hot_state, &initial->hot,
            sizeof(cpu->new_dynarec_hot_state));
@@ -432,11 +434,11 @@ static void run_count_test(const char *name, const uint32_t *code, size_t count,
     cpu->cp1.new_dynarec_hot_state = &cpu->new_dynarec_hot_state;
     cpu->cp2.new_dynarec_hot_state = &cpu->new_dynarec_hot_state;
     if (cpu->new_dynarec_hot_state.pcaddr == 0)
-        cpu->new_dynarec_hot_state.pcaddr = 0x80000000;
+        cpu->new_dynarec_hot_state.pcaddr = addr;
     for (int i = 0; i < 32; i++)
         cpu->cp1.regs[i].dword = initial->cp1[i];
 
-    wasm_dynarec_exec(cpu, 0x80000000);
+    wasm_dynarec_exec(cpu, addr);
 
     if (expected->hot.pcaddr) {
         for (int i = 0; i < 64 &&
@@ -499,6 +501,43 @@ START_TEST(test_compile_example)
 }
 END_TEST
 
+START_TEST(test_cp0_count_down)
+{
+    const uint32_t block[] = {
+        0x08000002, /* j 0x80000008 */
+        0x00000000  /* nop */
+    };
+
+    memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000000;
+
+    memset(&expect_state, 0, sizeof(expect_state));
+    expect_state.hot.cp0_regs[CP0_COUNT_REG] = 4;
+    expect_state.hot.pcaddr = 0x80000008;
+
+    run_count_test_addr("cp0_count_down", block, sizeof(block)/4, 0x80000000,
+                       &init_state, &expect_state);
+}
+END_TEST
+
+START_TEST(test_cp0_count_up)
+{
+    const uint32_t block[] = {
+        0x08000000, /* j 0x80000000 */
+        0x00000000  /* nop */
+    };
+
+    memset(&init_state, 0, sizeof(init_state));
+    init_state.hot.pcaddr = 0x80000020;
+
+    memset(&expect_state, 0, sizeof(expect_state));
+    expect_state.hot.cp0_regs[CP0_COUNT_REG] = 16;
+    expect_state.hot.pcaddr = 0x80000000;
+
+    run_count_test_addr("cp0_count_up", block, sizeof(block)/4, 0x80000020,
+                       &init_state, &expect_state);
+}
+END_TEST
 START_TEST(test_nested_dispatch)
 {
     const uint32_t main_block[] = {
@@ -1387,8 +1426,8 @@ START_TEST(test_cp0_count_loop)
     expect_state.hot.regs[31] = init_state.hot.regs[31];
     expect_state.hot.pcaddr = 0x8000001c;
 
-    run_count_test("cp0_count_loop", block, sizeof(block)/4,
-                   &init_state, &expect_state);
+    run_count_test_addr("cp0_count_loop", block, sizeof(block)/4, 0x80000000,
+                       &init_state, &expect_state);
 }
 END_TEST
 
@@ -2187,6 +2226,8 @@ Suite *create_suite(void)
     tcase_add_test(tc_core, test_tlbp);
     tcase_add_test(tc_core, test_cp0_moves);
     tcase_add_test(tc_core, test_cp0_count_loop);
+    tcase_add_test(tc_core, test_cp0_count_down);
+    tcase_add_test(tc_core, test_cp0_count_up);
     tcase_add_test(tc_core, test_cp1_moves);
     tcase_add_test(tc_core, test_cp1_arith);
     tcase_add_test(tc_core, test_shift_64);
