@@ -2207,6 +2207,32 @@ START_TEST(test_slti_sign)
 }
 END_TEST
 
+START_TEST(test_s1_countdown)
+{
+    const uint32_t block[] = {
+        0x24111f40, /* addiu s1, zero, 0x1f40 */
+        0x00000000, /* nop */
+        0x2231ffff, /* addi  s1, s1, -1 */
+        0x1620fffd, /* bnez  s1, -3 */
+        0x00000000  /* nop */
+    };
+
+    struct r4300_core *cpu = calloc(1, sizeof(*cpu));
+    ck_assert_ptr_nonnull(cpu);
+
+    wasm_dynarec_init(cpu);
+    wasm_dynarec_recompile_block(cpu, block, sizeof(block)/4, 0x80000000);
+
+    const char *wat = wasm_dynarec_get_wat(0x80000000);
+    ck_assert_ptr_nonnull(wat);
+    ck_assert_msg(strstr(wat, "2147483652"),
+                  "missing loop dispatch\n%s", wat);
+
+    wasm_dynarec_cleanup();
+    free(cpu);
+}
+END_TEST
+
 Suite *create_suite(void)
 {
     Suite *s = suite_create("WebAssembly Dynarec");
@@ -2243,6 +2269,7 @@ Suite *create_suite(void)
     tcase_add_test(tc_core, test_stack_rw);
     tcase_add_test(tc_core, test_stack_offset);
     tcase_add_test(tc_core, test_loop_stack);
+    tcase_add_test(tc_core, test_s1_countdown);
     tcase_add_test(tc_core, test_sumsq_c);
     tcase_add_test(tc_core, test_factorial_c);
     tcase_add_test(tc_core, test_fibonacci_c);

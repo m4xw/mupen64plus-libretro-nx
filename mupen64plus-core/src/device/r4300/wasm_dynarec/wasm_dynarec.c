@@ -563,7 +563,7 @@ static struct wasm_dynarec_block *get_block(uint32_t address)
 }
 
 /* Return remaining instruction count from an existing block that
- * covers the given address, or 4 if no such block exists. */
+ * covers the given address, or 0x100 if no such block exists. */
 static size_t get_remaining_count(uint32_t address)
 {
     for (size_t i = 0; i < g_blocks_count; ++i) {
@@ -572,7 +572,7 @@ static size_t get_remaining_count(uint32_t address)
         if (address >= start && address < end)
             return g_blocks[i].iw_count - (address - start) / 4;
     }
-    return 4;
+    return 0x100;
 }
 
 #ifdef __EMSCRIPTEN__
@@ -3031,7 +3031,7 @@ void wasm_dynarec_dispatch(struct r4300_core *r4300, uint32_t address)
         //DebugMessage(M64MSG_INFO, "Dispatching WebAssembly dynarec block at address %08x", pc);
 
         if (!get_block(pc))
-            wasm_dynarec_recompile_block(r4300, code, 4, pc);
+            wasm_dynarec_recompile_block(r4300, code, 0x100, pc);
 
         wasm_dynarec_exec(r4300, pc);
 
