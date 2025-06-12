@@ -47,7 +47,8 @@ static void wasm_dynarec_update_count(struct r4300_core *r4300,
     int *cycle_count = &r4300->new_dynarec_hot_state.cycle_count;
 
     uint32_t pc = r4300->new_dynarec_hot_state.pcaddr;
-    uint32_t count = ((pc - start_pc) >> 2) * cp0->count_per_op;
+    uint32_t diff = (pc >= start_pc) ? (pc - start_pc) : (start_pc - pc);
+    uint32_t count = (diff >> 2) * cp0->count_per_op;
     if (cp0->count_per_op_denom_pot) {
         count += (1U << cp0->count_per_op_denom_pot) - 1;
         count >>= cp0->count_per_op_denom_pot;
