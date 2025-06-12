@@ -16,6 +16,48 @@ int emit_loadstore_instr(char **buf, size_t *size, uint32_t inst)
     int16_t imm = inst & 0xffff;
 
     switch (op) {
+            case 0x1a:
+                append(buf, size,
+                       "    ;; ldl r%u, %d(r%u)\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i64.const %d\n"
+                       "    i64.add\n"
+                       "    local.set $t\n"
+                       "    local.get $base\n"
+                       "    local.get $t\n"
+                       "    i32.wrap_i64\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    call $ldl\n"
+                       "    local.set $t\n"
+                       "    local.get $base\n"
+                       "    local.get $t\n"
+                       "    i64.store offset=%zu\n",
+                       rt, imm, rs,
+                       (size_t)GPR_OFFSET(rs), imm,
+                       (size_t)GPR_OFFSET(rt),
+                       (size_t)GPR_OFFSET(rt));
+                return 1;
+            case 0x1b:
+                append(buf, size,
+                       "    ;; ldr r%u, %d(r%u)\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    i64.const %d\n"
+                       "    i64.add\n"
+                       "    local.set $t\n"
+                       "    local.get $base\n"
+                       "    local.get $t\n"
+                       "    i32.wrap_i64\n"
+                       "    local.get $base i64.load offset=%zu\n"
+                       "    call $ldr\n"
+                       "    local.set $t\n"
+                       "    local.get $base\n"
+                       "    local.get $t\n"
+                       "    i64.store offset=%zu\n",
+                       rt, imm, rs,
+                       (size_t)GPR_OFFSET(rs), imm,
+                       (size_t)GPR_OFFSET(rt),
+                       (size_t)GPR_OFFSET(rt));
+                return 1;
             case 0x20:
                 append(buf, size,
                        "    ;; lb r%u, %d(r%u)\n"
@@ -358,7 +400,7 @@ int emit_loadstore_instr(char **buf, size_t *size, uint32_t inst)
                 return 1;
             case 0x2c:
                 append(buf, size,
-                       "    ;; sdl r%u, %d(r%u) (approx)\n"
+                       "    ;; sdl r%u, %d(r%u)\n"
                        "    local.get $base i64.load offset=%zu\n"
                        "    i64.const %d\n"
                        "    i64.add\n"
@@ -367,15 +409,14 @@ int emit_loadstore_instr(char **buf, size_t *size, uint32_t inst)
                        "    local.get $t\n"
                        "    i32.wrap_i64\n"
                        "    local.get $base i64.load offset=%zu\n"
-                       "    i64.const -1\n"
-                       "    call $mem_write64\n",
+                       "    call $sdl\n",
                        rt, imm, rs,
                        (size_t)GPR_OFFSET(rs), imm,
                        (size_t)GPR_OFFSET(rt));
                 return 1;
             case 0x2d:
                 append(buf, size,
-                       "    ;; sdr r%u, %d(r%u) (approx)\n"
+                       "    ;; sdr r%u, %d(r%u)\n"
                        "    local.get $base i64.load offset=%zu\n"
                        "    i64.const %d\n"
                        "    i64.add\n"
@@ -384,8 +425,7 @@ int emit_loadstore_instr(char **buf, size_t *size, uint32_t inst)
                        "    local.get $t\n"
                        "    i32.wrap_i64\n"
                        "    local.get $base i64.load offset=%zu\n"
-                       "    i64.const -1\n"
-                       "    call $mem_write64\n",
+                       "    call $sdr\n",
                        rt, imm, rs,
                        (size_t)GPR_OFFSET(rs), imm,
                        (size_t)GPR_OFFSET(rt));

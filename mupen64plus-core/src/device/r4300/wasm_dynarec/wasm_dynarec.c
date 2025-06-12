@@ -19,6 +19,9 @@
 #include <string.h>
 #include <stdio.h>
 
+#define BITS_BELOW_MASK64(x) ((UINT64_C(1) << (x)) - 1)
+#define BITS_ABOVE_MASK64(x) (~BITS_BELOW_MASK64((x)))
+
 unsigned int stop_after_jal;
 
 struct wasm_dynarec_block
@@ -380,6 +383,74 @@ m3ApiRawFunction(wasm_dynarec_write_dword)
     m3ApiSuccess();
 }
 
+m3ApiRawFunction(wasm_dynarec_ldl)
+{
+    m3ApiReturnType(uint64_t)
+    m3ApiGetArg(uint32_t, base);
+    m3ApiGetArg(uint32_t, addr);
+    m3ApiGetArg(uint64_t, orig);
+    (void)base;
+    uint64_t value = orig;
+    if (g_current_cpu) {
+        uint64_t v = 0;
+        unsigned int n = addr & 7;
+        unsigned int shift = 8 * n;
+        uint64_t mask = BITS_BELOW_MASK64(8 * n);
+        if (r4300_read_aligned_dword(g_current_cpu, addr & ~UINT32_C(7), &v))
+            value = (orig & mask) | (v << shift);
+    }
+    m3ApiReturn(value);
+}
+
+m3ApiRawFunction(wasm_dynarec_ldr)
+{
+    m3ApiReturnType(uint64_t)
+    m3ApiGetArg(uint32_t, base);
+    m3ApiGetArg(uint32_t, addr);
+    m3ApiGetArg(uint64_t, orig);
+    (void)base;
+    uint64_t value = orig;
+    if (g_current_cpu) {
+        uint64_t v = 0;
+        unsigned int n = addr & 7;
+        unsigned int shift = 8 * (7 - n);
+        uint64_t mask = (n == 7) ? UINT64_C(0) : BITS_ABOVE_MASK64(8 * (n + 1));
+        if (r4300_read_aligned_dword(g_current_cpu, addr & ~UINT32_C(7), &v))
+            value = (orig & mask) | (v >> shift);
+    }
+    m3ApiReturn(value);
+}
+
+m3ApiRawFunction(wasm_dynarec_sdl)
+{
+    m3ApiGetArg(uint32_t, base);
+    m3ApiGetArg(uint32_t, addr);
+    m3ApiGetArg(uint64_t, val);
+    (void)base;
+    if (g_current_cpu) {
+        unsigned int n = addr & 7;
+        unsigned int shift = 8 * n;
+        uint64_t mask = (n == 0) ? ~UINT64_C(0) : BITS_BELOW_MASK64(8 * (8 - n));
+        r4300_write_aligned_dword(g_current_cpu, addr & ~UINT32_C(7), val >> shift, mask);
+    }
+    m3ApiSuccess();
+}
+
+m3ApiRawFunction(wasm_dynarec_sdr)
+{
+    m3ApiGetArg(uint32_t, base);
+    m3ApiGetArg(uint32_t, addr);
+    m3ApiGetArg(uint64_t, val);
+    (void)base;
+    if (g_current_cpu) {
+        unsigned int n = addr & 7;
+        unsigned int shift = 8 * (7 - n);
+        uint64_t mask = BITS_ABOVE_MASK64(8 * (7 - n));
+        r4300_write_aligned_dword(g_current_cpu, addr & ~UINT32_C(7), val << shift, mask);
+    }
+    m3ApiSuccess();
+}
+
 m3ApiRawFunction(wasm_dynarec_tlbp)
 {
     m3ApiGetArg(uint32_t, base);
@@ -474,6 +545,62 @@ void wasm_dynarec_write_dword(uint32_t base, uint32_t addr,
     DebugMessage(M64MSG_VERBOSE, "wasm_dynarec_write_dword: addr=0x%08X, value=0x%08X, mask=0x%08X", addr, value, mask);
     if (g_current_cpu)
         r4300_write_aligned_dword(g_current_cpu, addr, value, mask);
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint64_t wasm_dynarec_ldl(uint32_t base, uint32_t addr, uint64_t orig)
+{
+    (void)base;
+    uint64_t value = orig;
+    if (g_current_cpu) {
+        uint64_t v = 0;
+        unsigned int n = addr & 7;
+        unsigned int shift = 8 * n;
+        uint64_t mask = BITS_BELOW_MASK64(8 * n);
+        if (r4300_read_aligned_dword(g_current_cpu, addr & ~UINT32_C(7), &v))
+            value = (orig & mask) | (v << shift);
+    }
+    return value;
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint64_t wasm_dynarec_ldr(uint32_t base, uint32_t addr, uint64_t orig)
+{
+    (void)base;
+    uint64_t value = orig;
+    if (g_current_cpu) {
+        uint64_t v = 0;
+        unsigned int n = addr & 7;
+        unsigned int shift = 8 * (7 - n);
+        uint64_t mask = (n == 7) ? UINT64_C(0) : BITS_ABOVE_MASK64(8 * (n + 1));
+        if (r4300_read_aligned_dword(g_current_cpu, addr & ~UINT32_C(7), &v))
+            value = (orig & mask) | (v >> shift);
+    }
+    return value;
+}
+
+EMSCRIPTEN_KEEPALIVE
+void wasm_dynarec_sdl(uint32_t base, uint32_t addr, uint64_t val)
+{
+    (void)base;
+    if (g_current_cpu) {
+        unsigned int n = addr & 7;
+        unsigned int shift = 8 * n;
+        uint64_t mask = (n == 0) ? ~UINT64_C(0) : BITS_BELOW_MASK64(8 * (8 - n));
+        r4300_write_aligned_dword(g_current_cpu, addr & ~UINT32_C(7), val >> shift, mask);
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE
+void wasm_dynarec_sdr(uint32_t base, uint32_t addr, uint64_t val)
+{
+    (void)base;
+    if (g_current_cpu) {
+        unsigned int n = addr & 7;
+        unsigned int shift = 8 * (7 - n);
+        uint64_t mask = BITS_ABOVE_MASK64(8 * (7 - n));
+        r4300_write_aligned_dword(g_current_cpu, addr & ~UINT32_C(7), val << shift, mask);
+    }
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -637,6 +764,10 @@ EM_JS(void, wasm_dynarec_exec_js,
         mem_read64: Module['_wasm_dynarec_read_dword'],
         mem_write32: Module['_wasm_dynarec_write_word'],
         mem_write64: Module['_wasm_dynarec_write_dword'],
+        ldl: Module['_wasm_dynarec_ldl'],
+        ldr: Module['_wasm_dynarec_ldr'],
+        sdl: Module['_wasm_dynarec_sdl'],
+        sdr: Module['_wasm_dynarec_sdr'],
         cp0_read: Module['_wasm_dynarec_cp0_read'],
         cp0_write: Module['_wasm_dynarec_cp0_write'],
         tlbp: Module['_wasm_dynarec_tlbp'],
@@ -2393,6 +2524,10 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
            "  (import \"env\" \"mem_read64\" (func $mem_read64 (param i32 i32) (result i64)))\n"
            "  (import \"env\" \"mem_write32\" (func $mem_write32 (param i32 i32 i32 i32)))\n"
            "  (import \"env\" \"mem_write64\" (func $mem_write64 (param i32 i32 i64 i64)))\n"
+           "  (import \"env\" \"ldl\" (func $ldl (param i32 i32 i64) (result i64)))\n"
+           "  (import \"env\" \"ldr\" (func $ldr (param i32 i32 i64) (result i64)))\n"
+           "  (import \"env\" \"sdl\" (func $sdl (param i32 i32 i64)))\n"
+           "  (import \"env\" \"sdr\" (func $sdr (param i32 i32 i64)))\n"
            "  (import \"env\" \"cp0_read\" (func $cp0_read (param i32 i32) (result i64)))\n"
            "  (import \"env\" \"cp0_write\" (func $cp0_write (param i32 i32 i64)))\n"
            "  (import \"env\" \"tlbp\" (func $tlbp (param i32)))\n"
@@ -2951,6 +3086,10 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
     m3_LinkRawFunction(module, "env", "mem_read64", "I(ii)", wasm_dynarec_read_dword);
     m3_LinkRawFunction(module, "env", "mem_write32", "v(iiii)", wasm_dynarec_write_word);
     m3_LinkRawFunction(module, "env", "mem_write64", "v(iiII)", wasm_dynarec_write_dword);
+    m3_LinkRawFunction(module, "env", "ldl", "I(iiI)", wasm_dynarec_ldl);
+    m3_LinkRawFunction(module, "env", "ldr", "I(iiI)", wasm_dynarec_ldr);
+    m3_LinkRawFunction(module, "env", "sdl", "v(iiI)", wasm_dynarec_sdl);
+    m3_LinkRawFunction(module, "env", "sdr", "v(iiI)", wasm_dynarec_sdr);
     m3_LinkRawFunction(module, "env", "cp0_read", "I(ii)", wasm_dynarec_cp0_read);
     m3_LinkRawFunction(module, "env", "cp0_write", "v(iiI)", wasm_dynarec_cp0_write);
     m3_LinkRawFunction(module, "env", "tlbp", "v(i)", wasm_dynarec_tlbp);
