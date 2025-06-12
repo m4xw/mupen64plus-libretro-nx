@@ -584,6 +584,28 @@ EM_JS(void, wasm_dynarec_exec_js,
       Module['_wasm_dynarec_dispatch_import'](base, a);
       sync_from_heap();
     };
+    const mem_read32_wrapper = function(base, addr) {
+      sync_to_heap();
+      const v = Module['_wasm_dynarec_read_word'](base, addr);
+      sync_from_heap();
+      return v;
+    };
+    const mem_read64_wrapper = function(base, addr) {
+      sync_to_heap();
+      const v = Module['_wasm_dynarec_read_dword'](base, addr);
+      sync_from_heap();
+      return v;
+    };
+    const mem_write32_wrapper = function(base, addr, value, mask) {
+      sync_to_heap();
+      Module['_wasm_dynarec_write_word'](base, addr, value, mask);
+      sync_from_heap();
+    };
+    const mem_write64_wrapper = function(base, addr, value, mask) {
+      sync_to_heap();
+      Module['_wasm_dynarec_write_dword'](base, addr, value, mask);
+      sync_from_heap();
+    };
     const cp0_read_wrapper = function(base, reg) {
       sync_to_heap();
       const v = Module['_wasm_dynarec_cp0_read'](base, reg);
@@ -599,10 +621,10 @@ EM_JS(void, wasm_dynarec_exec_js,
     const imports = {
       env: {
         wasm_dynarec_dispatch: dispatch_wrapper,
-        mem_read32: Module['_wasm_dynarec_read_word'],
-        mem_read64: Module['_wasm_dynarec_read_dword'],
-        mem_write32: Module['_wasm_dynarec_write_word'],
-        mem_write64: Module['_wasm_dynarec_write_dword'],
+        mem_read32: mem_read32_wrapper,
+        mem_read64: mem_read64_wrapper,
+        mem_write32: mem_write32_wrapper,
+        mem_write64: mem_write64_wrapper,
         cp0_read: cp0_read_wrapper,
         cp0_write: cp0_write_wrapper,
         tlbp: Module['_wasm_dynarec_tlbp'],
