@@ -549,7 +549,11 @@ EM_JS(void, wasm_dynarec_exec_js,
 
   const totalPages = ((state_size + 0x8000 + 0x1000 + 65535) >>> 16);
   if (!Module.wasmMemory) {
-    Module.wasmMemory = new WebAssembly.Memory({initial: totalPages});
+    Module.wasmMemory = new WebAssembly.Memory({
+      initial: totalPages,
+      maximum: totalPages,
+      shared: true
+    });
     Module.wasmMemoryU8 = new Uint8Array(Module.wasmMemory.buffer);
     Module.wasmMemoryDV = new DataView(Module.wasmMemory.buffer);
     for (let i = 0; i < 32; i++) {
@@ -561,11 +565,17 @@ EM_JS(void, wasm_dynarec_exec_js,
   if (!block) {
     let wasmBytes;
     if (Module['wabt']) {
-      const mod = Module['wabt'].parseWat('block.wat', watStr);
+      const mod = Module['wabt'].parseWat('block.wat', watStr, {
+        features: { threads: true }
+      });
       wasmBytes = mod.toBinary({}).buffer;
       mod.destroy();
     } else if (typeof Binaryen !== 'undefined') {
       const mod = Binaryen.parseText(watStr);
+      if (Binaryen._BinaryenModuleSetFeatures)
+        Binaryen._BinaryenModuleSetFeatures(mod,
+          Binaryen._BinaryenFeatureAtomics() |
+          Binaryen._BinaryenFeatureMutableGlobals());
       wasmBytes = mod.emitBinary();
       mod.dispose();
     } else {
@@ -2290,9 +2300,9 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
            "  (import \"env\" \"tlbr\" (func $tlbr (param i32)))\n"
            "  (import \"env\" \"tlbwi\" (func $tlbwi (param i32)))\n"
            "  (import \"env\" \"tlbwr\" (func $tlbwr (param i32)))\n"
-           "  (import \"env\" \"memory\" (memory %u))\n"
+           "  (import \"env\" \"memory\" (memory %u %u shared))\n"
            "  (func $block_%x (param $base i32) (local $t i64) (local $tmp i32)\n",
-           block->mem_pages, address);
+           block->mem_pages, block->mem_pages, address);
 
     for (size_t i = 0; i < count; ++i) {
         uint32_t inst = iw[i];
@@ -2760,7 +2770,7 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
     fclose(f);
 
     char cmd[256];
-    snprintf(cmd, sizeof(cmd), "wat2wasm %s -o %s", wat_path, wasm_path);
+    snprintf(cmd, sizeof(cmd), "wat2wasm %s --enable-threads -o %s", wat_path, wasm_path);
     if (system(cmd) != 0)
         return;
 
