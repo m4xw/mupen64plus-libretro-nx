@@ -535,7 +535,8 @@ static size_t get_remaining_count(uint32_t address)
 #ifdef __EMSCRIPTEN__
 EM_JS(void, wasm_dynarec_exec_js,
       (uint32_t addr, uintptr_t state_ptr, uintptr_t cp1_ptr, const char *wat,
-       size_t state_size, size_t cp1_simple_off, size_t cp1_double_off),
+       size_t state_size, size_t cp1_simple_off, size_t cp1_double_off,
+       size_t mmap_off, size_t mmap_size),
 {
   const watStr = UTF8ToString(wat);
   Module.wasmBlockCache = Module.wasmBlockCache || {};
@@ -548,6 +549,8 @@ EM_JS(void, wasm_dynarec_exec_js,
   const CP1_PTR_SIZE = 32 * 8;
   const CP1_REGION_START = cp1_simple_off;
   const CP1_REGION_END = cp1_double_off + CP1_PTR_SIZE;
+  const MMAP_REGION_START = mmap_off;
+  const MMAP_REGION_END = mmap_off + mmap_size;
 
   if (!block) {
     let wasmBytes;
@@ -568,7 +571,9 @@ EM_JS(void, wasm_dynarec_exec_js,
     let tmpU8, tmpDV;
     const sync_to_heap = function() {
       for (let i = 0; i < state_size; i++) {
-        if (i >= CP1_REGION_START && i < CP1_REGION_END) continue;
+        if ((i >= CP1_REGION_START && i < CP1_REGION_END) ||
+            (i >= MMAP_REGION_START && i < MMAP_REGION_END))
+          continue;
         heapU8[state_ptr + i] = tmpU8[i];
       }
       for (let i = 0; i < 32; i++) {
@@ -578,7 +583,9 @@ EM_JS(void, wasm_dynarec_exec_js,
     };
     const sync_from_heap = function() {
       for (let i = 0; i < state_size; i++) {
-        if (i >= CP1_REGION_START && i < CP1_REGION_END) continue;
+        if ((i >= CP1_REGION_START && i < CP1_REGION_END) ||
+            (i >= MMAP_REGION_START && i < MMAP_REGION_END))
+          continue;
         tmpU8[i] = heapU8[state_ptr + i];
       }
       for (let i = 0; i < 32; i++) {
@@ -676,8 +683,12 @@ EM_JS(void, wasm_dynarec_exec_js,
     ({instance, memU8, memDV, entry} = block);
   }
 
-  for (let i = 0; i < state_size; i++)
+  for (let i = 0; i < state_size; i++) {
+    if ((i >= CP1_REGION_START && i < CP1_REGION_END) ||
+        (i >= MMAP_REGION_START && i < MMAP_REGION_END))
+      continue;
     memU8[i] = heapU8[state_ptr + i];
+  }
 
   // CP1_BASE declared above
   for (let i = 0; i < 32; i++) {
@@ -690,7 +701,9 @@ EM_JS(void, wasm_dynarec_exec_js,
   entry(0);
 
   for (let i = 0; i < state_size; i++) {
-    if (i >= CP1_REGION_START && i < CP1_REGION_END) continue;
+    if ((i >= CP1_REGION_START && i < CP1_REGION_END) ||
+        (i >= MMAP_REGION_START && i < MMAP_REGION_END))
+      continue;
     heapU8[state_ptr + i] = memU8[i];
   }
 
@@ -2807,7 +2820,9 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
                          block->wat,
                          sizeof(struct new_dynarec_hot_state),
                          offsetof(struct new_dynarec_hot_state, cp1_regs_simple),
-                         offsetof(struct new_dynarec_hot_state, cp1_regs_double));
+                         offsetof(struct new_dynarec_hot_state, cp1_regs_double),
+                         offsetof(struct new_dynarec_hot_state, memory_map),
+                         sizeof(((struct new_dynarec_hot_state*)0)->memory_map));
 
     if (block->idle && r4300->new_dynarec_hot_state.cycle_count < 0) {
         r4300->new_dynarec_hot_state.cp0_regs[CP0_COUNT_REG] -=
