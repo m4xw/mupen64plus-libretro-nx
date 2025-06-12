@@ -2261,7 +2261,8 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
 {
     (void)r4300;
 
-    uint32_t targets[32];
+    size_t target_capacity = 32;
+    uint32_t *targets = malloc(target_capacity * sizeof(uint32_t));
     size_t target_count = 0;
 
     DebugMessage(M64MSG_INFO, "Recompiling WebAssembly dynarec block at address %08x with %zu instructions", address, count);
@@ -2403,11 +2404,17 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
                        "    call $block_%08x\n"
                        "    return\n",
                        target);
-                if (target != address && target_count < 32) {
+                if (target != address) {
                     int known = 0;
                     for (size_t ti = 0; ti < target_count; ++ti)
                         if (targets[ti] == target) { known = 1; break; }
-                    if (!known) targets[target_count++] = target;
+                    if (!known) {
+                        if (target_count >= target_capacity) {
+                            target_capacity *= 2;
+                            targets = realloc(targets, target_capacity * sizeof(uint32_t));
+                        }
+                        targets[target_count++] = target;
+                    }
                 }
             }
             i++;
@@ -2485,17 +2492,29 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
                        fallthrough);
             }
             append(&block->wat, &block->wat_size, "    end\n");
-            if (target != address && target_count < 32) {
+            if (target != address) {
                 int known = 0;
                 for (size_t ti = 0; ti < target_count; ++ti)
                     if (targets[ti] == target) { known = 1; break; }
-                if (!known) targets[target_count++] = target;
+                if (!known) {
+                    if (target_count >= target_capacity) {
+                        target_capacity *= 2;
+                        targets = realloc(targets, target_capacity * sizeof(uint32_t));
+                    }
+                    targets[target_count++] = target;
+                }
             }
-            if (fallthrough != address && target_count < 32) {
+            if (fallthrough != address) {
                 int known = 0;
                 for (size_t ti = 0; ti < target_count; ++ti)
                     if (targets[ti] == fallthrough) { known = 1; break; }
-                if (!known) targets[target_count++] = fallthrough;
+                if (!known) {
+                    if (target_count >= target_capacity) {
+                        target_capacity *= 2;
+                        targets = realloc(targets, target_capacity * sizeof(uint32_t));
+                    }
+                    targets[target_count++] = fallthrough;
+                }
             }
             i++;
         }
@@ -2580,17 +2599,29 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
                        fallthrough);
             }
                 append(&block->wat, &block->wat_size, "    end\n");
-                if (target != address && target_count < 32) {
+                if (target != address) {
                     int known = 0;
                     for (size_t ti = 0; ti < target_count; ++ti)
                         if (targets[ti] == target) { known = 1; break; }
-                    if (!known) targets[target_count++] = target;
+                    if (!known) {
+                        if (target_count >= target_capacity) {
+                            target_capacity *= 2;
+                            targets = realloc(targets, target_capacity * sizeof(uint32_t));
+                        }
+                        targets[target_count++] = target;
+                    }
                 }
-                if (fallthrough != address && target_count < 32) {
+                if (fallthrough != address) {
                     int known = 0;
                     for (size_t ti = 0; ti < target_count; ++ti)
                         if (targets[ti] == fallthrough) { known = 1; break; }
-                    if (!known) targets[target_count++] = fallthrough;
+                    if (!known) {
+                        if (target_count >= target_capacity) {
+                            target_capacity *= 2;
+                            targets = realloc(targets, target_capacity * sizeof(uint32_t));
+                        }
+                        targets[target_count++] = fallthrough;
+                    }
                 }
                 i++;
             }
@@ -2652,17 +2683,29 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
                            fallthrough);
                 }
                 append(&block->wat, &block->wat_size, "    end\n");
-                if (target != address && target_count < 32) {
+                if (target != address) {
                     int known = 0;
                     for (size_t ti = 0; ti < target_count; ++ti)
                         if (targets[ti] == target) { known = 1; break; }
-                    if (!known) targets[target_count++] = target;
+                    if (!known) {
+                        if (target_count >= target_capacity) {
+                            target_capacity *= 2;
+                            targets = realloc(targets, target_capacity * sizeof(uint32_t));
+                        }
+                        targets[target_count++] = target;
+                    }
                 }
-                if (fallthrough != address && target_count < 32) {
+                if (fallthrough != address) {
                     int known = 0;
                     for (size_t ti = 0; ti < target_count; ++ti)
                         if (targets[ti] == fallthrough) { known = 1; break; }
-                    if (!known) targets[target_count++] = fallthrough;
+                    if (!known) {
+                        if (target_count >= target_capacity) {
+                            target_capacity *= 2;
+                            targets = realloc(targets, target_capacity * sizeof(uint32_t));
+                        }
+                        targets[target_count++] = fallthrough;
+                    }
                 }
                 i++;
             } else {
@@ -2707,6 +2750,8 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
            "  (export \"entry\" (func $block_%x))\n"
            ")\n",
            address);
+
+    free(targets);
 
     DebugMessage(M64MSG_INFO, "Recompiled block %08x to WebAssembly", address);
 }
