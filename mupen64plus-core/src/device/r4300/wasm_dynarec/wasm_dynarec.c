@@ -546,6 +546,11 @@ EM_JS(void, wasm_dynarec_exec_js,
   const heapDV = new DataView(HEAPU8.buffer);
   const CP1_BASE = 0x8000;
 
+  if (!Module.wasmMemory) {
+    const pages = Math.ceil((state_size + 0x8000 + 0x1000) / 65536);
+    Module.wasmMemory = new WebAssembly.Memory({initial: pages});
+  }
+
   if (!block) {
     let wasmBytes;
     if (Module['wabt']) {
@@ -562,25 +567,13 @@ EM_JS(void, wasm_dynarec_exec_js,
       while(true) {}
     }
 
-    let tmpU8, tmpDV;
     const dispatch_wrapper = function(base, a) {
-      for (let i = 0; i < state_size; i++)
-        heapU8[state_ptr + i] = tmpU8[i];
-      for (let i = 0; i < 32; i++) {
-        const v = tmpDV.getBigUint64(CP1_BASE + i * 8, true);
-        heapDV.setBigUint64(cp1_ptr + i * 8, v, true);
-      }
       Module['_wasm_dynarec_dispatch_import'](base, a);
-      for (let i = 0; i < state_size; i++)
-        tmpU8[i] = heapU8[state_ptr + i];
-      for (let i = 0; i < 32; i++) {
-        const v = heapDV.getBigUint64(cp1_ptr + i * 8, true);
-        tmpDV.setBigUint64(CP1_BASE + i * 8, v, true);
-      }
     };
 
     const imports = {
       env: {
+        memory: Module.wasmMemory,
         wasm_dynarec_dispatch: dispatch_wrapper,
         mem_read32: Module['_wasm_dynarec_read_word'],
         mem_read64: Module['_wasm_dynarec_read_dword'],
@@ -596,20 +589,17 @@ EM_JS(void, wasm_dynarec_exec_js,
     };
 
     instance = new WebAssembly.Instance(new WebAssembly.Module(wasmBytes), imports);
-    tmpU8 = new Uint8Array(instance.exports.memory.buffer);
-    tmpDV = new DataView(instance.exports.memory.buffer);
+    memU8 = new Uint8Array(Module.wasmMemory.buffer);
+    memDV = new DataView(Module.wasmMemory.buffer);
     entry = instance.exports.entry;
 
-    block = {instance, memU8: tmpU8, memDV: tmpDV, entry};
+    block = {instance, entry};
     Module.wasmBlockCache[addr] = block;
-    memU8 = tmpU8;
-    memDV = tmpDV;
   } else {
-    ({instance, memU8, memDV, entry} = block);
+    ({instance, entry} = block);
+    memU8 = new Uint8Array(Module.wasmMemory.buffer);
+    memDV = new DataView(Module.wasmMemory.buffer);
   }
-
-  for (let i = 0; i < state_size; i++)
-    memU8[i] = heapU8[state_ptr + i];
 
   // CP1_BASE declared above
   for (let i = 0; i < 32; i++) {
@@ -620,14 +610,6 @@ EM_JS(void, wasm_dynarec_exec_js,
   }
 
   entry(0);
-
-  for (let i = 0; i < state_size; i++)
-    heapU8[state_ptr + i] = memU8[i];
-
-  for (let i = 0; i < 32; i++) {
-    const val = memDV.getBigUint64(CP1_BASE + i * 8, true);
-    heapDV.setBigUint64(cp1_ptr + i * 8, val, true);
-  }
 });
 #endif
 
@@ -2293,7 +2275,7 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
            "  (import \"env\" \"tlbr\" (func $tlbr (param i32)))\n"
            "  (import \"env\" \"tlbwi\" (func $tlbwi (param i32)))\n"
            "  (import \"env\" \"tlbwr\" (func $tlbwr (param i32)))\n"
-           "  (memory %u)\n"
+           "  (import \"env\" \"memory\" (memory %u))\n"
            "  (func $block_%x (param $base i32) (local $t i64) (local $tmp i32)\n",
            block->mem_pages, address);
 
