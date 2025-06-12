@@ -39,11 +39,16 @@ const CP1_DOUBLE_OFFSET = parseOffset('offsetof_struct_new_dynarec_hot_state_cp1
 const CP1_REG_BASE = 0x8000;
 
 (async () => {
+  const module = await WebAssembly.compile(wasmBuffer);
+  const memImport = WebAssembly.Module.imports(module).find(i => i.kind === 'memory');
+  const pages = memImport ? memImport.minimum : 1;
+  const memory = new WebAssembly.Memory({ initial: pages });
   const env = {
     wasm_dynarec_dispatch: () => {},
+    memory,
   };
-  const mod = await WebAssembly.instantiate(wasmBuffer, { env });
-  const { memory, entry } = mod.instance.exports;
+  const { instance } = await WebAssembly.instantiate(module, { env });
+  const { entry } = instance.exports;
   const view = new DataView(memory.buffer);
 
   for (let i = 0; i < 32; i++) {
