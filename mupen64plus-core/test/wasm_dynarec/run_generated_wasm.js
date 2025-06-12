@@ -42,7 +42,11 @@ const CP1_REG_BASE = 0x8000;
   const module = await WebAssembly.compile(wasmBuffer);
   const memImport = WebAssembly.Module.imports(module).find(i => i.kind === 'memory');
   const pages = memImport ? memImport.minimum : 1;
-  const memory = new WebAssembly.Memory({ initial: pages });
+  const memory = new WebAssembly.Memory({
+    initial: pages,
+    maximum: memImport && memImport.maximum ? memImport.maximum : pages,
+    shared: memImport && memImport.shared
+  });
   const env = {
     wasm_dynarec_dispatch: () => {},
     memory,

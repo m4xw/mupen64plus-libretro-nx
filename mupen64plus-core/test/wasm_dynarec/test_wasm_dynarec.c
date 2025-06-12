@@ -490,7 +490,7 @@ START_TEST(test_compile_example)
 
     const char *wasm_path = "mupen64plus-core/test/wasm_dynarec/test_block.wasm";
     char cmd[256];
-    snprintf(cmd, sizeof(cmd), "wat2wasm %s -o %s", wat_path, wasm_path);
+    snprintf(cmd, sizeof(cmd), "wat2wasm %s --enable-threads -o %s", wat_path, wasm_path);
     int ret = system(cmd);
     ck_assert_msg(ret == 0, "wat2wasm failed: %d", ret);
 
