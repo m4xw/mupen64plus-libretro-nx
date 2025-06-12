@@ -326,10 +326,10 @@ m3ApiRawFunction(wasm_dynarec_cp0_write)
 {
     m3ApiGetArg(uint32_t, base);
     m3ApiGetArg(uint32_t, reg);
-    m3ApiGetArg(uint64_t, value);
+    m3ApiGetArg(uint32_t, value);
     (void)base;
     if (g_current_cpu)
-        wasm_cp0_write32(g_current_cpu, reg, (uint32_t)value);
+        wasm_cp0_write32(g_current_cpu, reg, value);
     m3ApiSuccess();
 }
 
@@ -503,11 +503,11 @@ uint64_t wasm_dynarec_cp0_read(uint32_t base, uint32_t reg)
 }
 
 EMSCRIPTEN_KEEPALIVE
-void wasm_dynarec_cp0_write(uint32_t base, uint32_t reg, uint64_t value)
+void wasm_dynarec_cp0_write(uint32_t base, uint32_t reg, uint32_t value)
 {
     (void)base;
     if (g_current_cpu)
-        wasm_cp0_write32(g_current_cpu, reg, (uint32_t)value);
+        wasm_cp0_write32(g_current_cpu, reg, value);
 }
 #endif
 
@@ -1372,6 +1372,7 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                    "    local.get $base\n"
                    "    i32.const %u\n"
                    "    local.get $base i64.load offset=%zu\n"
+                   "    i32.wrap_i64\n"
                    "    call $cp0_write\n"
                    "    local.get $base\n"
                    "    local.get $base i64.load offset=%zu\n"
@@ -2288,7 +2289,7 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
            "  (import \"env\" \"mem_write32\" (func $mem_write32 (param i32 i32 i32 i32)))\n"
            "  (import \"env\" \"mem_write64\" (func $mem_write64 (param i32 i32 i64 i64)))\n"
            "  (import \"env\" \"cp0_read\" (func $cp0_read (param i32 i32) (result i64)))\n"
-           "  (import \"env\" \"cp0_write\" (func $cp0_write (param i32 i32 i64)))\n"
+           "  (import \"env\" \"cp0_write\" (func $cp0_write (param i32 i32 i32)))\n"
            "  (import \"env\" \"tlbp\" (func $tlbp (param i32)))\n"
            "  (import \"env\" \"tlbr\" (func $tlbr (param i32)))\n"
            "  (import \"env\" \"tlbwi\" (func $tlbwi (param i32)))\n"
@@ -2799,7 +2800,7 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
     m3_LinkRawFunction(module, "env", "mem_write32", "v(iiii)", wasm_dynarec_write_word);
     m3_LinkRawFunction(module, "env", "mem_write64", "v(iiII)", wasm_dynarec_write_dword);
     m3_LinkRawFunction(module, "env", "cp0_read", "I(ii)", wasm_dynarec_cp0_read);
-    m3_LinkRawFunction(module, "env", "cp0_write", "v(iiI)", wasm_dynarec_cp0_write);
+    m3_LinkRawFunction(module, "env", "cp0_write", "v(iii)", wasm_dynarec_cp0_write);
     m3_LinkRawFunction(module, "env", "tlbp", "v(i)", wasm_dynarec_tlbp);
     m3_LinkRawFunction(module, "env", "tlbr", "v(i)", wasm_dynarec_tlbr);
     m3_LinkRawFunction(module, "env", "tlbwi", "v(i)", wasm_dynarec_tlbwi);
