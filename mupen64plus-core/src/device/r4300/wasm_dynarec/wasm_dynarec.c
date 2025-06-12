@@ -335,6 +335,27 @@ m3ApiRawFunction(wasm_dynarec_cp0_write)
     m3ApiSuccess();
 }
 
+m3ApiRawFunction(wasm_dynarec_eret)
+{
+    m3ApiGetArg(uint32_t, base);
+    (void)base;
+    if (g_current_cpu) {
+        struct r4300_core *r4300 = g_current_cpu;
+        uint32_t *cp0_regs = r4300->new_dynarec_hot_state.cp0_regs;
+        wasm_cp0_update_count(r4300);
+        cp0_regs[CP0_STATUS_REG] &= ~CP0_STATUS_EXL;
+        r4300->new_dynarec_hot_state.pcaddr = cp0_regs[CP0_EPC_REG];
+        r4300->llbit = 0;
+        r4300_check_interrupt(r4300, CP0_CAUSE_IP2,
+                              r4300->mi->regs[MI_INTR_REG] &
+                              r4300->mi->regs[MI_INTR_MASK_REG]);
+        r4300->cp0.last_addr = r4300->new_dynarec_hot_state.pcaddr;
+        if (r4300->new_dynarec_hot_state.cycle_count >= 0)
+            gen_interrupt(r4300);
+    }
+    m3ApiSuccess();
+}
+
 m3ApiRawFunction(wasm_dynarec_write_word)
 {
     m3ApiGetArg(uint32_t, base);
@@ -511,6 +532,26 @@ void wasm_dynarec_cp0_write(uint32_t base, uint32_t reg, uint64_t value)
     if (g_current_cpu)
         wasm_cp0_write32(g_current_cpu, reg, (uint32_t)value);
 }
+
+EMSCRIPTEN_KEEPALIVE
+void wasm_dynarec_eret(uint32_t base)
+{
+    (void)base;
+    if (g_current_cpu) {
+        struct r4300_core *r4300 = g_current_cpu;
+        uint32_t *cp0_regs = r4300->new_dynarec_hot_state.cp0_regs;
+        wasm_cp0_update_count(r4300);
+        cp0_regs[CP0_STATUS_REG] &= ~CP0_STATUS_EXL;
+        r4300->new_dynarec_hot_state.pcaddr = cp0_regs[CP0_EPC_REG];
+        r4300->llbit = 0;
+        r4300_check_interrupt(r4300, CP0_CAUSE_IP2,
+                              r4300->mi->regs[MI_INTR_REG] &
+                              r4300->mi->regs[MI_INTR_MASK_REG]);
+        r4300->cp0.last_addr = r4300->new_dynarec_hot_state.pcaddr;
+        if (r4300->new_dynarec_hot_state.cycle_count >= 0)
+            gen_interrupt(r4300);
+    }
+}
 #endif
 
 static struct wasm_dynarec_block *get_block(uint32_t address)
@@ -602,6 +643,7 @@ EM_JS(void, wasm_dynarec_exec_js,
         tlbr: Module['_wasm_dynarec_tlbr'],
         tlbwi: Module['_wasm_dynarec_tlbwi'],
         tlbwr: Module['_wasm_dynarec_tlbwr'],
+        eret: Module['_wasm_dynarec_eret'],
         memory: Module._dynarecMemory
       }
     };
@@ -1354,6 +1396,27 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                    (size_t)GPR_OFFSET(rt),
                    (size_t)CP0_OFFSET(rd));
             break;
+        case 0x02:
+            append(buf, size,
+                   "    ;; cfc0 r%u, c%u\n"
+                   "    local.get $base\n"
+                   "    i32.const %u\n"
+                   "    call $cp0_read\n"
+                   "    i32.wrap_i64\n"
+                   "    i64.extend_i32_s\n"
+                   "    local.set $t\n"
+                   "    local.get $base\n"
+                   "    local.get $t\n"
+                   "    i64.store offset=%zu\n"
+                   "    local.get $base\n"
+                   "    local.get $t\n"
+                   "    i32.wrap_i64\n"
+                   "    i32.store offset=%zu\n",
+                   rt, rd,
+                   rd,
+                   (size_t)GPR_OFFSET(rt),
+                   (size_t)CP0_OFFSET(rd));
+            break;
         case 0x01:
             append(buf, size,
                    "    ;; dmfc0 r%u, c%u\n"
@@ -1391,6 +1454,27 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                    (size_t)GPR_OFFSET(rt),
                    (size_t)CP0_OFFSET(rd));
             break;
+        case 0x06:
+            append(buf, size,
+                   "    ;; ctc0 r%u, c%u\n"
+                   "    local.get $base\n"
+                   "    i32.const %u\n"
+                   "    local.get $base i64.load offset=%zu\n"
+                   "    call $cp0_write\n"
+                   "    local.get $base\n"
+                   "    local.get $base i64.load offset=%zu\n"
+                   "    i32.wrap_i64\n"
+                   "    i32.store offset=%zu\n",
+                   rt, rd,
+                   rd,
+                   (size_t)GPR_OFFSET(rt),
+                   (size_t)GPR_OFFSET(rt),
+                   (size_t)CP0_OFFSET(rd));
+            break;
+        case 0x08:
+            append(buf, size,
+                   "    ;; bc0 (unsupported)\n");
+            break;
         case 0x10:
             switch (funct) {
             case 0x01:
@@ -1416,6 +1500,19 @@ static void emit_simple_instr(char **buf, size_t *size, uint32_t inst)
                        "    ;; tlbp\n"
                        "    local.get $base\n"
                        "    call $tlbp\n");
+                break;
+            case 0x10:
+            case 0x18:
+                append(buf, size,
+                       "    ;; eret\n"
+                       "    local.get $base\n"
+                       "    call $eret\n");
+                append(buf, size,
+                       "    local.get $base\n"
+                       "    local.get $base i32.load offset=%zu\n"
+                       "    call $dispatch\n"
+                       "    return\n",
+                       (size_t)PC_OFFSET);
                 break;
             default:
                 append(buf, size,
@@ -2302,6 +2399,7 @@ void wasm_dynarec_recompile_block(struct r4300_core *r4300, const uint32_t *iw, 
            "  (import \"env\" \"tlbr\" (func $tlbr (param i32)))\n"
            "  (import \"env\" \"tlbwi\" (func $tlbwi (param i32)))\n"
            "  (import \"env\" \"tlbwr\" (func $tlbwr (param i32)))\n"
+           "  (import \"env\" \"eret\" (func $eret (param i32)))\n"
            "  (import \"env\" \"memory\" (memory %u %u shared))\n"
            "  (func $block_%x (param $base i32) (local $t i64) (local $tmp i32)\n",
            block->mem_pages, block->mem_pages, address);
@@ -2859,6 +2957,7 @@ void wasm_dynarec_exec(struct r4300_core *r4300, uint32_t address)
     m3_LinkRawFunction(module, "env", "tlbr", "v(i)", wasm_dynarec_tlbr);
     m3_LinkRawFunction(module, "env", "tlbwi", "v(i)", wasm_dynarec_tlbwi);
     m3_LinkRawFunction(module, "env", "tlbwr", "v(i)", wasm_dynarec_tlbwr);
+    m3_LinkRawFunction(module, "env", "eret", "v(i)", wasm_dynarec_eret);
 
     IM3Function entry;
     m3_FindFunction(&entry, runtime, "entry");
